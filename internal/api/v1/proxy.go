@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	"oppama/internal/api/middleware"
 	"oppama/internal/config"
 	"oppama/internal/discovery/fofa"
 	"oppama/internal/discovery/hunter"
@@ -23,15 +24,17 @@ type ProxyHandler struct {
 	config         *config.Config
 	configPath     string
 	proxyService   *proxy.ProxyService
-	onConfigSaved  func() // 配置保存后的回调函数
+	onConfigSaved  func()                          // 配置保存后的回调函数
+	configProvider *middleware.ProxyConfigProvider // 配置提供者
 }
 
 // NewProxyHandler 创建代理处理器
-func NewProxyHandler(storage storage.Storage, cfg *config.Config, configPath string) *ProxyHandler {
+func NewProxyHandler(storage storage.Storage, cfg *config.Config, configPath string, configProvider *middleware.ProxyConfigProvider) *ProxyHandler {
 	return &ProxyHandler{
-		storage:    storage,
-		config:     cfg,
-		configPath: configPath,
+		storage:        storage,
+		config:         cfg,
+		configPath:     configPath,
+		configProvider: configProvider,
 	}
 }
 
@@ -80,10 +83,10 @@ func (h *ProxyHandler) GetConfig(c *gin.Context) {
 			},
 			// 检测器配置
 			"detector": gin.H{
-				"concurrency":         detectorCfg.Concurrency,
-				"timeout":             detectorCfg.Timeout,
-				"honeypot_enabled":    detectorCfg.HoneypotDetection.Enabled,
-				"honeypot_threshold":  detectorCfg.HoneypotDetection.Threshold,
+				"concurrency":        detectorCfg.Concurrency,
+				"timeout":            detectorCfg.Timeout,
+				"honeypot_enabled":   detectorCfg.HoneypotDetection.Enabled,
+				"honeypot_threshold": detectorCfg.HoneypotDetection.Threshold,
 			},
 		},
 	})
@@ -110,11 +113,13 @@ func (h *ProxyHandler) UpdateConfig(c *gin.Context) {
 		var val bool
 		json.Unmarshal(req["enable_auth"], &val)
 		h.config.Proxy.EnableAuth = val
+		fmt.Printf("[ProxyHandler] 更新 enable_auth: %v\n", val)
 	}
 	if val, exists := req["api_key"]; exists {
 		var s string
 		json.Unmarshal(val, &s)
 		h.config.Proxy.APIKey = s
+		fmt.Printf("[ProxyHandler] 更新 api_key: %s\n", s)
 	}
 	if val, exists := req["default_model"]; exists {
 		var s string
@@ -262,6 +267,16 @@ func (h *ProxyHandler) UpdateConfig(c *gin.Context) {
 	// 调用配置保存后的回调（用于重新加载搜索引擎等）
 	if h.onConfigSaved != nil {
 		h.onConfigSaved()
+	}
+
+	// 调试：确认配置已更新
+	fmt.Printf("[ProxyHandler] 配置更新后 - EnableAuth: %v, APIKey: '%s'\n", h.config.Proxy.EnableAuth, h.config.Proxy.APIKey)
+
+	// 更新配置提供者（用于中间件热重载）
+	if h.configProvider != nil {
+		h.configProvider.UpdateConfig(h.config.Proxy.APIKey, h.config.Proxy.EnableAuth)
+		fmt.Printf("[ProxyHandler] 已更新配置提供者 - EnableAuth: %v, APIKey: '%s'\n",
+			h.config.Proxy.EnableAuth, h.config.Proxy.APIKey)
 	}
 
 	c.JSON(http.StatusOK, gin.H{

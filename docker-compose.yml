@@ -10,8 +10,8 @@ services:
     volumes:
       - ./data:/app/data
       - ./logs:/app/logs
-      # 挂载配置文件
-      - ./config.yaml:/app/config.yaml:ro
+      # 挂载配置文件（移除:ro 以允许写入）
+      - ./config.yaml:/app/config.yaml
     healthcheck:
       test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/health"]
       interval: 30s

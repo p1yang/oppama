@@ -356,6 +356,7 @@
 import { ref, computed, onMounted, nextTick } from 'vue'
 import { ElMessage } from 'element-plus'
 import api from '@/api/client'
+import axios from 'axios'
 
 const loading = ref(false)
 const models = ref<any[]>([])
@@ -526,14 +527,31 @@ const sendMessage = async () => {
 
   try {
     // 调用对话 API - 使用 OpenAI 兼容接口
-    // 使用 apiClient 自动处理认证和错误
     // 注意：OpenAI 接口在 /v1 路由组，而 baseURL 是 /v1/api，所以需要使用 ../
-    const response = await api.post('../chat/completions', {
+    // 从 Settings 配置中获取 API Key（如果启用了认证）
+    const apiKey = localStorage.getItem('api_key')
+    const headers: any = {
+      'Content-Type': 'application/json'
+    }
+    
+    // 如果有 API Key，使用 API Key 认证；否则使用 JWT Token（向后兼容）
+    if (apiKey) {
+      headers.Authorization = `Bearer ${apiKey}`
+    } else {
+      const token = localStorage.getItem('access_token')
+      if (token) {
+        headers.Authorization = `Bearer ${token}`
+      }
+    }
+    
+    const response = await axios.post('/v1/chat/completions', {
       model: chatModel.value.name,
       messages: [
         { role: 'user', content: message }
       ],
       stream: false
+    }, {
+      headers
     })
     
     // 获取助手回复
@@ -545,7 +563,6 @@ const sendMessage = async () => {
       time: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
     })
   } catch (error: any) {
-    // 401 错误已经在 client.ts 中统一处理，会跳转到登录页
     ElMessage.error('对话失败：' + error.message)
   } finally {
     loading.value = false

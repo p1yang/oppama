@@ -556,6 +556,38 @@
 <script setup lang="ts">
 import { ref, reactive, onMounted, computed, watch } from 'vue'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
+import {
+  Setting,
+  Connection,
+  Lock,
+  Unlock,
+  Key,
+  RefreshRight,
+  Search,
+  Platform,
+  Timer,
+  Warning,
+  User,
+  Plus,
+  Edit,
+  Delete,
+  RefreshLeft,
+  Select,
+  Coin,
+  DataLine,
+  Stamp,
+  View,
+  Grid,
+  List,
+  Monitor,
+  Lightning,
+  Clock,
+  InfoFilled,
+  ChatDotRound,
+  CopyDocument,
+  Close,
+  Promoted
+} from '@element-plus/icons-vue'
 import api from '@/api/client'
 
 const activeTab = ref('proxy')
@@ -712,6 +744,11 @@ const loadProxyConfig = async () => {
         detectorConfig.honeypot_enabled = data.detector.honeypot_enabled ?? true
         detectorConfig.honeypot_threshold = data.detector.honeypot_threshold ?? 5
       }
+      
+      // 如果启用了认证且有 API Key，保存到 localStorage
+      if (proxyConfig.enable_auth && proxyConfig.api_key) {
+        localStorage.setItem('api_key', proxyConfig.api_key)
+      }
     }
   } catch (error: any) {
     console.error('加载配置失败:', error)
@@ -723,6 +760,13 @@ const saveProxyConfig = async () => {
   try {
     await api.put('/proxy/config', proxyConfig)
     ElMessage.success('代理配置已保存')
+    
+    // 如果启用了认证，保存 API Key 到 localStorage 供 OpenAI 接口使用
+    if (proxyConfig.enable_auth && proxyConfig.api_key) {
+      localStorage.setItem('api_key', proxyConfig.api_key)
+    } else {
+      localStorage.removeItem('api_key')
+    }
   } catch (error: any) {
     ElMessage.error('保存失败：' + error.message)
   } finally {

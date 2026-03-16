@@ -4,8 +4,8 @@ server:
     mode: release
 proxy:
     enabled: true
-    enable_auth: false
-    api_key: ""
+    enable_auth: true
+    api_key: aaaa
     default_model: ""
     fallback_enabled: true
     max_retries: 3
@@ -62,7 +62,7 @@ detector:
         fake_versions:
             - 0.0.0
             - unknown
-        threshold: 60
+        threshold: 10
 discovery:
     auto_discovery:
         enabled: false

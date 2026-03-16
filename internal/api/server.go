@@ -24,15 +24,16 @@ type BlacklistStorage = storagepkg.BlacklistStorage
 
 // Server API 服务器
 type Server struct {
-	engine       *gin.Engine
-	config       *config.Config
-	configPath   string
-	storage      storagepkg.Storage
-	taskMgr      *task.Manager
-	proxyService *proxy.ProxyService
-	rateLimiter  *middleware.LoginRateLimiter
-	blacklist    storagepkg.BlacklistStorage
-	scheduler    interface{} // 使用 interface 避免循环导入
+	engine         *gin.Engine
+	config         *config.Config
+	configPath     string
+	storage        storagepkg.Storage
+	taskMgr        *task.Manager
+	proxyService   *proxy.ProxyService
+	rateLimiter    *middleware.LoginRateLimiter
+	blacklist      storagepkg.BlacklistStorage
+	scheduler      interface{}                     // 使用 interface 避免循环导入
+	configProvider *middleware.ProxyConfigProvider // 配置提供者，用于热重载
 }
 
 // NewServer 创建 API 服务器
@@ -87,15 +88,20 @@ func NewServer(cfg *config.Config, storage storagepkg.Storage, configPath string
 	}
 	proxySvc := proxy.NewProxyService(proxyCfg, storage)
 
+	// 创建配置提供者（用于中间件热重载）
+	configProvider := middleware.NewProxyConfigProvider()
+	configProvider.UpdateConfig(cfg.Proxy.APIKey, cfg.Proxy.EnableAuth)
+
 	server := &Server{
-		engine:       engine,
-		config:       cfg,
-		configPath:   configPath,
-		storage:      storage,
-		taskMgr:      taskMgr,
-		proxyService: proxySvc,
-		rateLimiter:  rateLimiter,
-		blacklist:    blacklist,
+		engine:         engine,
+		config:         cfg,
+		configPath:     configPath,
+		storage:        storage,
+		taskMgr:        taskMgr,
+		proxyService:   proxySvc,
+		rateLimiter:    rateLimiter,
+		blacklist:      blacklist,
+		configProvider: configProvider,
 	}
 
 	// 初始化默认管理员账户
@@ -315,7 +321,7 @@ func (s *Server) registerRoutes() {
 	serviceHandler := v1.NewServiceHandler(s.storage, s.config, s.configPath, s.taskMgr)
 	modelHandler := v1.NewModelHandler(s.storage)
 	discoveryHandler := v1.NewDiscoveryHandler(s.storage, s.config, s.configPath, s.taskMgr)
-	proxyHandler := v1.NewProxyHandler(s.storage, s.config, s.configPath)
+	proxyHandler := v1.NewProxyHandler(s.storage, s.config, s.configPath, s.configProvider)
 	// 设置 ProxyService 引用（用于配置热重载）
 	proxyHandler.SetProxyService(s.proxyService)
 
@@ -402,9 +408,10 @@ func (s *Server) registerRoutes() {
 		}
 	}
 
-	// OpenAI 兼容接口（需要认证）
+	// OpenAI 兼容接口（使用独立的 API Key 认证，符合 OpenAI 标准）
 	openaiGroup := s.engine.Group("/v1")
-	openaiGroup.Use(jwtAuthWithBlacklist)
+	// 使用配置提供者实现热重载
+	openaiGroup.Use(middleware.OpenAIAuth(s.configProvider))
 	{
 		openaiHandler := v1.NewOpenAIHandler(s.storage, s.proxyService)
 		openaiGroup.POST("/chat/completions", openaiHandler.ChatCompletions)

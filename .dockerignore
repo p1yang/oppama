@@ -1,0 +1,54 @@
+# Git
+.git
+.gitignore
+.gitattributes
+
+# 配置文件（使用 config.yaml）
+.env
+.env.local
+.env.*.local
+
+# 文档
+README.md
+*.md
+!config.yaml
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+*~
+
+# 构建产物
+bin/
+dist/
+build/
+*.exe
+*.test
+*.out
+
+# 前端
+web/node_modules/
+web/dist/
+web/.vite/
+web/.cache/
+
+# 日志和数据
+data/
+logs/
+*.log
+*.db
+
+# 临时文件
+tmp/
+temp/
+*.tmp
+
+# 操作系统
+.DS_Store
+Thumbs.db
+
+# 测试
+*.coverprofile
+coverage/

@@ -1,0 +1,26 @@
+services:
+  oppama:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: oppama
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+      # 挂载配置文件
+      - ./config.yaml:/app/config.yaml:ro
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+    networks:
+      - oppama-network
+
+networks:
+  oppama-network:
+    driver: bridge

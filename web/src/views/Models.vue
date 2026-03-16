@@ -526,27 +526,18 @@ const sendMessage = async () => {
 
   try {
     // 调用对话 API - 使用 OpenAI 兼容接口
-    const response = await fetch('/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: chatModel.value.name,
-        messages: [
-          { role: 'user', content: message }
-        ],
-        stream: false
-      })
+    // 使用 apiClient 自动处理认证和错误
+    // 注意：OpenAI 接口在 /v1 路由组，而 baseURL 是 /v1/api，所以需要使用 ../
+    const response = await api.post('../chat/completions', {
+      model: chatModel.value.name,
+      messages: [
+        { role: 'user', content: message }
+      ],
+      stream: false
     })
-
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`)
-    }
-
-    const data = await response.json()
+    
     // 获取助手回复
-    const assistantMessage = data.choices?.[0]?.message?.content || '暂无回复'
+    const assistantMessage = response.data.choices?.[0]?.message?.content || '暂无回复'
     
     messages.value.push({
       role: 'assistant',
@@ -554,6 +545,7 @@ const sendMessage = async () => {
       time: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
     })
   } catch (error: any) {
+    // 401 错误已经在 client.ts 中统一处理，会跳转到登录页
     ElMessage.error('对话失败：' + error.message)
   } finally {
     loading.value = false

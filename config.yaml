@@ -5,7 +5,7 @@ server:
 proxy:
     enabled: true
     enable_auth: false
-    api_key: aaaa
+    api_key: admin123
     default_model: ""
     fallback_enabled: true
     max_retries: 3

@@ -16,6 +16,7 @@ type Scheduler struct {
 	taskMgr       *task.Manager
 	storage       storage.Storage
 	interval      time.Duration
+	modelInterval time.Duration // 模型同步间隔
 	stopChan      chan struct{}
 	tickers       map[string]*time.Ticker
 	detectorCfg   *detector.DetectorConfig
@@ -25,12 +26,13 @@ type Scheduler struct {
 // NewScheduler 创建调度器
 func NewScheduler(taskMgr *task.Manager, storage storage.Storage, detectorCfg *detector.DetectorConfig) *Scheduler {
 	return &Scheduler{
-		taskMgr:     taskMgr,
-		storage:     storage,
-		interval:    5 * time.Minute, // 默认 5 分钟
-		stopChan:    make(chan struct{}),
-		tickers:     make(map[string]*time.Ticker),
-		detectorCfg: detectorCfg,
+		taskMgr:       taskMgr,
+		storage:       storage,
+		interval:      5 * time.Minute,  // 默认 5 分钟健康检查
+		modelInterval: 10 * time.Minute, // 默认 10 分钟模型同步
+		stopChan:      make(chan struct{}),
+		tickers:       make(map[string]*time.Ticker),
+		detectorCfg:   detectorCfg,
 	}
 }
 
@@ -39,7 +41,60 @@ func (s *Scheduler) UpdateDetectorConfig(cfg *detector.DetectorConfig) {
 	s.detectorCfgMu.Lock()
 	defer s.detectorCfgMu.Unlock()
 	s.detectorCfg = cfg
-	log.Printf("[Scheduler] 检测器配置已更新: timeout=%v, concurrency=%d", cfg.Timeout, cfg.Concurrency)
+	log.Printf("[Scheduler] 检测器配置已更新：timeout=%v, concurrency=%d", cfg.Timeout, cfg.Concurrency)
+}
+
+// SetHealthCheckInterval 设置健康检查间隔（单位：分钟）
+func (s *Scheduler) SetHealthCheckInterval(minutes int) {
+	if minutes < 1 {
+		minutes = 1
+	}
+	newInterval := time.Duration(minutes) * time.Minute
+
+	s.detectorCfgMu.Lock()
+	oldInterval := s.interval
+	s.interval = newInterval
+	s.detectorCfgMu.Unlock()
+
+	log.Printf("[Scheduler] 健康检查间隔已更新：%v -> %v", oldInterval, newInterval)
+
+	// 重启健康检查任务以应用新间隔
+	go func() {
+		s.stopChan <- struct{}{} // 停止旧的 ticker
+		close(s.stopChan)
+		s.stopChan = make(chan struct{})
+		go s.startHealthCheck()
+	}()
+}
+
+// SetModelSyncInterval 设置模型同步间隔（单位：分钟）
+func (s *Scheduler) SetModelSyncInterval(minutes int) {
+	if minutes < 1 {
+		minutes = 1
+	}
+	newInterval := time.Duration(minutes) * time.Minute
+
+	s.detectorCfgMu.Lock()
+	oldInterval := s.modelInterval
+	s.modelInterval = newInterval
+	s.detectorCfgMu.Unlock()
+
+	log.Printf("[Scheduler] 模型同步间隔已更新：%v -> %v", oldInterval, newInterval)
+
+	// 重启模型同步任务以应用新间隔
+	go func() {
+		s.stopChan <- struct{}{} // 停止旧的 ticker
+		close(s.stopChan)
+		s.stopChan = make(chan struct{})
+		go s.startModelSync()
+	}()
+}
+
+// GetIntervals 获取当前的时间间隔设置
+func (s *Scheduler) GetIntervals() (healthCheck int, modelSync int) {
+	s.detectorCfgMu.RLock()
+	defer s.detectorCfgMu.RUnlock()
+	return int(s.interval.Minutes()), int(s.modelInterval.Minutes())
 }
 
 // getDetectorConfig 获取当前检测器配置
@@ -75,7 +130,9 @@ func (s *Scheduler) Stop() {
 
 // startHealthCheck 启动定期健康检查
 func (s *Scheduler) startHealthCheck() {
+	s.detectorCfgMu.RLock()
 	ticker := time.NewTicker(s.interval)
+	s.detectorCfgMu.RUnlock()
 	s.tickers["health_check"] = ticker
 	defer ticker.Stop()
 
@@ -160,7 +217,10 @@ func (s *Scheduler) runHealthCheck() {
 
 // startModelSync 启动定期模型同步
 func (s *Scheduler) startModelSync() {
-	interval := 10 * time.Minute // 10 分钟同步一次模型
+	s.detectorCfgMu.RLock()
+	interval := s.modelInterval
+	s.detectorCfgMu.RUnlock()
+
 	ticker := time.NewTicker(interval)
 	s.tickers["model_sync"] = ticker
 	defer ticker.Stop()

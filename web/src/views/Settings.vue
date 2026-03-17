@@ -294,6 +294,39 @@
 
               <div class="form-group">
                 <div class="form-group-title">
+                  <el-icon><Clock /></el-icon>
+                  <span>定时任务间隔</span>
+                </div>
+                <el-form-item label="健康检查间隔">
+                  <el-input-number
+                    v-model="detectorConfig.health_check_interval"
+                    :min="1"
+                    :max="60"
+                    :step="1"
+                    style="width: 150px;"
+                  />
+                  <span style="margin-left: 12px;">分钟</span>
+                  <template #suffix>
+                    <el-text size="small" type="info">定期检查服务存活状态的时间间隔</el-text>
+                  </template>
+                </el-form-item>
+                <el-form-item label="模型同步间隔">
+                  <el-input-number
+                    v-model="detectorConfig.model_sync_interval"
+                    :min="1"
+                    :max="120"
+                    :step="1"
+                    style="width: 150px;"
+                  />
+                  <span style="margin-left: 12px;">分钟</span>
+                  <template #suffix>
+                    <el-text size="small" type="info">定期同步在线服务模型列表的时间间隔</el-text>
+                  </template>
+                </el-form-item>
+              </div>
+
+              <div class="form-group">
+                <div class="form-group-title">
                   <el-icon><Warning /></el-icon>
                   <span>蜜罐检测</span>
                 </div>
@@ -629,6 +662,8 @@ const detectorConfig = reactive({
   timeout: 30,
   honeypot_enabled: true,
   honeypot_threshold: 5,
+  health_check_interval: 5,   // 健康检查间隔（分钟）
+  model_sync_interval: 10,    // 模型同步间隔（分钟）
 })
 
 // 密码修改表单
@@ -743,6 +778,9 @@ const loadProxyConfig = async () => {
         detectorConfig.timeout = data.detector.timeout ?? 30
         detectorConfig.honeypot_enabled = data.detector.honeypot_enabled ?? true
         detectorConfig.honeypot_threshold = data.detector.honeypot_threshold ?? 5
+        // 加载时间间隔配置
+        detectorConfig.health_check_interval = data.detector.health_check_interval ?? 5
+        detectorConfig.model_sync_interval = data.detector.model_sync_interval ?? 10
       }
       
       // 如果启用了认证且有 API Key，保存到 localStorage
@@ -878,6 +916,8 @@ const loadDetectorConfig = () => {
   detectorConfig.timeout = 30
   detectorConfig.honeypot_enabled = true
   detectorConfig.honeypot_threshold = 5
+  detectorConfig.health_check_interval = 5
+  detectorConfig.model_sync_interval = 10
   ElMessage.info('已重置为默认配置，请点击保存以应用')
 }
 

@@ -111,6 +111,11 @@ const handleLogin = async () => {
       // 保存 Token 到 localStorage
       localStorage.setItem('access_token', token)
       localStorage.setItem('user_info', JSON.stringify(user))
+      
+      // 保存 API Key（用于 OpenAI/Anthropic 兼容接口）
+      // 从配置中获取或使用默认值
+      const apiKey = localStorage.getItem('api_key') || 'admin123'
+      localStorage.setItem('api_key', apiKey)
 
       // 设置 axios 默认请求头
       api.defaults.headers.common['Authorization'] = `Bearer ${token}`

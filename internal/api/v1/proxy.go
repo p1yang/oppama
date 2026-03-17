@@ -48,11 +48,29 @@ func (h *ProxyHandler) SetConfigSavedCallback(fn func()) {
 	h.onConfigSaved = fn
 }
 
-// GetConfig 获取代理配置、搜索引擎配置和检测器配置
+// GetConfig 获取代理配置、搜索引擎配置、检测器配置和时间间隔设置
 func (h *ProxyHandler) GetConfig(c *gin.Context) {
 	proxyCfg := h.config.Proxy
 	discoveryCfg := h.config.Discovery
 	detectorCfg := h.config.Detector
+
+	// 获取 Scheduler 的当前间隔设置
+	healthCheckInterval := 5 // 默认值
+	modelSyncInterval := 10  // 默认值
+
+	// 尝试从 server 获取间隔
+	type intervalGetter interface {
+		GetSchedulerIntervals() (healthCheck int, modelSync int, err error)
+	}
+	if getter, ok := c.Get("server"); ok {
+		if g, ok := getter.(intervalGetter); ok {
+			hc, ms, err := g.GetSchedulerIntervals()
+			if err == nil {
+				healthCheckInterval = hc
+				modelSyncInterval = ms
+			}
+		}
+	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"data": gin.H{
@@ -83,10 +101,12 @@ func (h *ProxyHandler) GetConfig(c *gin.Context) {
 			},
 			// 检测器配置
 			"detector": gin.H{
-				"concurrency":        detectorCfg.Concurrency,
-				"timeout":            detectorCfg.Timeout,
-				"honeypot_enabled":   detectorCfg.HoneypotDetection.Enabled,
-				"honeypot_threshold": detectorCfg.HoneypotDetection.Threshold,
+				"concurrency":           detectorCfg.Concurrency,
+				"timeout":               detectorCfg.Timeout,
+				"honeypot_enabled":      detectorCfg.HoneypotDetection.Enabled,
+				"honeypot_threshold":    detectorCfg.HoneypotDetection.Threshold,
+				"health_check_interval": healthCheckInterval, // 健康检查间隔（分钟）
+				"model_sync_interval":   modelSyncInterval,   // 模型同步间隔（分钟）
 			},
 		},
 	})
@@ -214,10 +234,12 @@ func (h *ProxyHandler) UpdateConfig(c *gin.Context) {
 	// 处理检测器配置
 	if val, exists := req["detector"]; exists {
 		var detector struct {
-			Concurrency       *int  `json:"concurrency"`
-			Timeout           *int  `json:"timeout"`
-			HoneypotEnabled   *bool `json:"honeypot_enabled"`
-			HoneypotThreshold *int  `json:"honeypot_threshold"`
+			Concurrency         *int  `json:"concurrency"`
+			Timeout             *int  `json:"timeout"`
+			HoneypotEnabled     *bool `json:"honeypot_enabled"`
+			HoneypotThreshold   *int  `json:"honeypot_threshold"`
+			HealthCheckInterval *int  `json:"health_check_interval"` // 健康检查间隔（分钟）
+			ModelSyncInterval   *int  `json:"model_sync_interval"`   // 模型同步间隔（分钟）
 		}
 		if err := json.Unmarshal(val, &detector); err == nil {
 			if detector.Concurrency != nil && *detector.Concurrency > 0 {
@@ -231,6 +253,35 @@ func (h *ProxyHandler) UpdateConfig(c *gin.Context) {
 			}
 			if detector.HoneypotThreshold != nil && *detector.HoneypotThreshold >= 0 {
 				h.config.Detector.HoneypotDetection.Threshold = *detector.HoneypotThreshold
+			}
+			// 更新 Scheduler 的时间间隔
+			if detector.HealthCheckInterval != nil || detector.ModelSyncInterval != nil {
+				// 通过 gin.Context 获取 server 实例来调用 SetSchedulerIntervals
+				// 这里我们通过回调函数来实现
+				healthCheck := 5 // 默认值
+				modelSync := 10  // 默认值
+
+				if detector.HealthCheckInterval != nil && *detector.HealthCheckInterval > 0 {
+					healthCheck = *detector.HealthCheckInterval
+				}
+				if detector.ModelSyncInterval != nil && *detector.ModelSyncInterval > 0 {
+					modelSync = *detector.ModelSyncInterval
+				}
+
+				// 使用类型断言来获取 server 实例并设置间隔
+				type intervalSetter interface {
+					SetSchedulerIntervals(healthCheck int, modelSync int) error
+				}
+				if setter, ok := c.Get("server"); ok {
+					if s, ok := setter.(intervalSetter); ok {
+						if err := s.SetSchedulerIntervals(healthCheck, modelSync); err != nil {
+							fmt.Printf("[ProxyHandler] 设置 Scheduler 间隔失败：%v\n", err)
+						} else {
+							fmt.Printf("[ProxyHandler] 已更新 Scheduler 间隔：健康检查=%d 分钟，模型同步=%d 分钟\n",
+								healthCheck, modelSync)
+						}
+					}
+				}
 			}
 		}
 	}

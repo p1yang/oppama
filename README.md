@@ -126,7 +126,26 @@ curl http://localhost:8080/v1/chat/completions \
   }'
 ```
 
-### 4. 服务发现接口
+### 4. Anthropic Claude 兼容接口
+
+```bash
+# 使用 x-api-key header (推荐)
+curl http://localhost:8080/v1/messages \
+  -H "Content-Type: application/json" \
+  -H "x-api-key: your-api-key" \
+  -H "anthropic-version: 2023-06-01" \
+  -d '{
+    "model": "claude-sonnet-4-20250514",
+    "max_tokens": 1024,
+    "messages": [
+      {"role": "user", "content": "Hello!"}
+    ]
+  }'
+```
+
+详细使用说明请参考 [ANTHROPIC_API.md](./ANTHROPIC_API.md)。
+
+### 5. 服务发现接口
 
 ```bash
 # 手动触发服务发现

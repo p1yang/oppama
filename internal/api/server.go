@@ -208,6 +208,38 @@ func (s *Server) UpdateSchedulerDetectorConfig() {
 	}
 }
 
+// SetSchedulerIntervals 设置调度器的时间间隔
+func (s *Server) SetSchedulerIntervals(healthCheckMinutes, modelSyncMinutes int) error {
+	// 使用类型断言来调用 SetHealthCheckInterval 和 SetModelSyncInterval
+	type schedulerWithIntervals interface {
+		SetHealthCheckInterval(minutes int)
+		SetModelSyncInterval(minutes int)
+	}
+
+	if sched, ok := s.scheduler.(schedulerWithIntervals); ok {
+		sched.SetHealthCheckInterval(healthCheckMinutes)
+		sched.SetModelSyncInterval(modelSyncMinutes)
+		fmt.Printf("[Server] 已更新 Scheduler 时间间隔：健康检查=%d 分钟，模型同步=%d 分钟\n",
+			healthCheckMinutes, modelSyncMinutes)
+		return nil
+	}
+	return fmt.Errorf("scheduler 不支持设置时间间隔")
+}
+
+// GetSchedulerIntervals 获取调度器的时间间隔
+func (s *Server) GetSchedulerIntervals() (healthCheck int, modelSync int, err error) {
+	// 使用类型断言来调用 GetIntervals
+	type schedulerWithIntervals interface {
+		GetIntervals() (healthCheck int, modelSync int)
+	}
+
+	if sched, ok := s.scheduler.(schedulerWithIntervals); ok {
+		hc, ms := sched.GetIntervals()
+		return hc, ms, nil
+	}
+	return 0, 0, fmt.Errorf("scheduler 不支持获取时间间隔")
+}
+
 // PrintDefaultAdminInfo 打印默认管理员账户信息
 func PrintDefaultAdminInfo(store storagepkg.Storage) {
 	ctx := context.Background()
@@ -338,6 +370,11 @@ func (s *Server) registerRoutes() {
 
 	// API v1 路由组（需要认证）
 	v1Group := s.engine.Group("/v1/api")
+	// 将 server 实例传递到上下文中，以便 handler 可以访问
+	v1Group.Use(func(c *gin.Context) {
+		c.Set("server", s)
+		c.Next()
+	})
 	v1Group.Use(jwtAuthWithBlacklist)
 	{
 		// 认证相关
@@ -417,6 +454,17 @@ func (s *Server) registerRoutes() {
 		openaiGroup.POST("/chat/completions", openaiHandler.ChatCompletions)
 		openaiGroup.GET("/models", openaiHandler.ListModels)
 		openaiGroup.POST("/chat", openaiHandler.Chat)
+	}
+
+	// Anthropic 兼容接口（使用相同的 API Key 认证，与 OpenAI API 权限一致）
+	anthropicGroup := s.engine.Group("/v1")
+	// 使用配置提供者实现热重载
+	anthropicGroup.Use(middleware.AnthropicAuth(s.configProvider))
+	{
+		anthropicHandler := v1.NewAnthropicHandler(s.storage, s.proxyService)
+		anthropicGroup.POST("/messages", anthropicHandler.Messages)
+		// 注意：不注册 /models 路由，避免与 OpenAI 冲突
+		// Anthropic client 会使用 OpenAI 格式的 /models 接口
 	}
 
 	// NoRoute 处理未匹配的路由 - 必须放在最后，用于 SPA 前端路由

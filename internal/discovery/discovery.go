@@ -3,7 +3,6 @@ package discovery
 import (
 	"context"
 	"fmt"
-	"log"
 	"sync"
 	"time"
 
@@ -11,6 +10,7 @@ import (
 	"oppama/internal/discovery/hunter"
 	"oppama/internal/discovery/shodan"
 	"oppama/internal/storage"
+	"oppama/internal/utils/logger"
 )
 
 // DiscoverySource 发现源接口
@@ -165,10 +165,10 @@ func (m *EngineManager) Search(ctx context.Context, engines []storage.DiscoveryS
 		task.Progress++
 		if result.Error != nil {
 			// 记录错误但继续处理其他结果
-			log.Printf("[Discovery] %s 搜索失败: %v", result.Source, result.Error)
+			logger.Discovery().Printf("%s 搜索失败：%v", result.Source, result.Error)
 			continue
 		}
-		log.Printf("[Discovery] %s 搜索成功，找到 %d 条结果", result.Source, len(result.URLs))
+		logger.Discovery().Printf("%s 搜索成功，找到 %d 条结果", result.Source, len(result.URLs))
 		task.Results[result.Source] = result.URLs
 		task.FoundCount += len(result.URLs)
 		allURLs = append(allURLs, result.URLs...)

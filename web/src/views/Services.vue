@@ -8,7 +8,7 @@
             <el-icon :size="24"><Connection /></el-icon>
           </div>
           <div class="stat-content">
-            <div class="stat-value">{{ total }}</div>
+            <div class="stat-value">{{ totalServices }}</div>
             <div class="stat-label">总服务数</div>
           </div>
         </div>
@@ -132,10 +132,17 @@
         </div>
         <div class="toolbar-right">
           <el-tooltip content="刷新列表" placement="top">
-            <el-button :icon="RefreshRight" @click="loadServices" circle />
+            <el-button @click="loadServices" circle>
+              <el-icon><RefreshRight /></el-icon>
+            </el-button>
           </el-tooltip>
           <el-tooltip :content="viewMode === 'table' ? '卡片视图' : '表格视图'" placement="top">
-            <el-button :icon="viewMode === 'table' ? Grid : List" @click="toggleView" circle />
+            <el-button @click="toggleView" circle>
+              <el-icon>
+                <Grid v-if="viewMode === 'table'" />
+                <List v-else />
+              </el-icon>
+            </el-button>
           </el-tooltip>
         </div>
       </div>
@@ -236,7 +243,7 @@
         <el-pagination
           v-model:current-page="currentPage"
           v-model:page-size="pageSize"
-          :total="total"
+          :total="totalServices"
           :page-sizes="[10, 20, 50, 100]"
           layout="total, sizes, prev, pager, next, jumper"
           @size-change="loadServices"
@@ -297,7 +304,7 @@
         <el-pagination
           v-model:current-page="currentPage"
           v-model:page-size="pageSize"
-          :total="total"
+          :total="totalServices"
           :page-sizes="[10, 20, 50, 100]"
           layout="total, sizes, prev, pager, next, jumper"
           @size-change="loadServices"
@@ -399,7 +406,7 @@ const checkingAll = ref(false)
 const services = ref<any[]>([])
 const currentPage = ref(1)
 const pageSize = ref(20)
-const total = ref(0)
+const totalServices = ref(0) // 总服务数（不受筛选影响）
 const selectedIds = ref<string[]>([])
 const viewMode = ref<'table' | 'card'>('table')
 const editingService = ref<any>(null)
@@ -437,7 +444,10 @@ const loadServices = async () => {
 
     const res = await api.get('/services', { params })
     services.value = (res.data.data || []).map((s: any) => ({ ...s, checking: false }))
-    total.value = res.data.total || 0
+    // 只在没有筛选条件时才更新总服务数
+    if (!searchForm.search && !searchForm.status && !searchForm.source) {
+      totalServices.value = res.data.total || 0
+    }
 
     // 加载统计数据
     loadStats()
@@ -724,7 +734,7 @@ const checkAllServices = async () => {
         title: `一键检测所有服务`,
         status: 'running',
         progress: 0,
-        total: total.value,
+        total: totalServices.value,
       })
 
       // 轮询任务状态
@@ -840,22 +850,25 @@ onUnmounted(() => {
 }
 
 .stat-card {
-  background: #fff;
+  background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
   border-radius: 12px;
   padding: 20px;
   display: flex;
   align-items: center;
   gap: 16px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
-  transition: all 0.3s ease;
+  box-shadow: var(--shadow-md);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   cursor: pointer;
   height: 100%;
+  min-height: 90px;
 }
 
 .stat-card:hover {
   transform: translateY(-4px);
-  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.1);
+  box-shadow: var(--shadow-lg);
 }
+
+
 
 .stat-icon {
   width: 56px;
@@ -891,16 +904,20 @@ onUnmounted(() => {
 .stat-value {
   font-size: 28px;
   font-weight: 700;
-  color: #1e293b;
+  color: var(--text-primary);
   line-height: 1;
   margin-bottom: 4px;
+  transition: color 0.3s ease;
 }
+
 
 .stat-label {
   font-size: 13px;
-  color: #64748b;
+  color: var(--text-secondary);
   font-weight: 500;
+  transition: color 0.3s ease;
 }
+
 
 /* 搜索卡片 */
 .search-card {
@@ -918,8 +935,10 @@ onUnmounted(() => {
   gap: 10px;
   font-size: 16px;
   font-weight: 600;
-  color: #1e293b;
+  color: var(--text-primary);
+  transition: color 0.3s ease;
 }
+
 
 .search-form {
   display: flex;
@@ -1019,8 +1038,10 @@ onUnmounted(() => {
 
 .name {
   font-weight: 600;
-  color: #1e293b;
+  color: var(--text-primary);
+  transition: color 0.3s ease;
 }
+
 
 .url-short {
   font-size: 12px;
@@ -1056,27 +1077,31 @@ onUnmounted(() => {
 /* 卡片视图 */
 .card-view {
   min-height: 400px;
+  padding-bottom: 20px;
 }
 
 .service-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
   gap: 20px;
+  margin-top: 20px;
 }
 
 .service-card {
-  background: #fff;
+  background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
   border-radius: 16px;
   overflow: hidden;
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
-  transition: all 0.3s ease;
+  box-shadow: var(--shadow-md);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   border: 2px solid transparent;
 }
 
 .service-card:hover {
   transform: translateY(-4px);
-  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.12);
+  box-shadow: var(--shadow-lg);
 }
+
+
 
 .service-card.status-online {
   border-color: rgba(34, 197, 94, 0.3);
@@ -1096,19 +1121,27 @@ onUnmounted(() => {
   align-items: center;
   padding: 20px;
   background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+  border-bottom: 1px solid #e2e8f0;
 }
+
 
 .card-icon {
   width: 48px;
   height: 48px;
-  background: #fff;
+  background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
   border-radius: 12px;
   display: flex;
   align-items: center;
   justify-content: center;
   color: #4f46e5;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  box-shadow: var(--shadow-sm);
+  transition: all 0.3s ease;
 }
+
+.service-card:hover .card-icon {
+  transform: scale(1.05) rotate(5deg);
+}
+
 
 .card-status {
   width: 36px;
@@ -1143,21 +1176,25 @@ onUnmounted(() => {
 .card-title {
   font-size: 16px;
   font-weight: 600;
-  color: #1e293b;
+  color: var(--text-primary);
   margin: 0 0 8px 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  transition: color 0.3s ease;
 }
+
 
 .card-url {
   font-size: 13px;
-  color: #64748b;
+  color: var(--text-secondary);
   margin: 0 0 16px 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  transition: color 0.3s ease;
 }
+
 
 .card-meta {
   display: flex;
@@ -1169,15 +1206,19 @@ onUnmounted(() => {
   align-items: center;
   gap: 4px;
   font-size: 12px;
-  color: #94a3b8;
+  color: var(--text-tertiary);
+  transition: color 0.3s ease;
 }
+
 
 .card-footer {
   display: flex;
   gap: 8px;
   padding: 16px 20px;
-  border-top: 1px solid #f1f5f9;
+  border-top: 1px solid var(--border-light);
+  transition: border-color 0.3s ease;
 }
+
 
 .card-footer .el-button {
   flex: 1;
@@ -1276,11 +1317,21 @@ onUnmounted(() => {
   }
 
   .service-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 16px;
   }
 
   :deep(.el-table__body-wrapper) {
     overflow-x: auto;
+  }
+  
+  .stats-row {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+  
+  .stat-card {
+    padding: 16px;
+    min-height: 80px;
   }
 }
 </style>

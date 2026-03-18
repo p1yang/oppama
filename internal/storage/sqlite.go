@@ -5,11 +5,12 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"sync"
 	"time"
+
+	"oppama/internal/utils/logger"
 
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -54,9 +55,9 @@ func NewSQLiteStorage(dbPath string) (*SQLiteStorage, error) {
 		if err != nil {
 			return nil, fmt.Errorf("打开数据库失败：%w", err)
 		}
-		log.Printf("警告：WAL模式启用失败，使用默认journal模式：%s", journalMode)
+		logger.Storage().Warnf("警告：WAL模式启用失败，使用默认journal模式：%s", journalMode)
 	} else {
-		log.Printf("SQLite WAL模式已启用")
+		logger.Storage().Printf("SQLite WAL模式已启用")
 	}
 
 	// 设置连接池优化
@@ -177,6 +178,20 @@ func (s *SQLiteStorage) initSchema() error {
 	);
 
 	CREATE INDEX IF NOT EXISTS idx_token_blacklist_expires ON token_blacklist(expires_at);
+
+	-- 活动日志表
+	CREATE TABLE IF NOT EXISTS activity_logs (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		type TEXT NOT NULL,
+		action TEXT NOT NULL,
+		target TEXT,
+		user_id TEXT,
+		metadata TEXT,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+	);
+
+	CREATE INDEX IF NOT EXISTS idx_activity_logs_type ON activity_logs(type);
+	CREATE INDEX IF NOT EXISTS idx_activity_logs_created_at ON activity_logs(created_at);
 	`
 
 	_, err := s.db.Exec(schema)
@@ -1105,7 +1120,129 @@ func (s *SQLiteStorage) GetWALStats() (map[string]interface{}, error) {
 	return stats, nil
 }
 
-// MaintainWAL 维护WAL模式
+// SaveActivityLog 保存活动日志
+func (s *SQLiteStorage) SaveActivityLog(ctx context.Context, log *ActivityLog) error {
+	query := `
+	INSERT INTO activity_logs (type, action, target, user_id, metadata, created_at)
+	VALUES (?, ?, ?, ?, ?, ?)
+	`
+
+	now := time.Now()
+	if log.CreatedAt.IsZero() {
+		log.CreatedAt = now
+	}
+
+	_, err := s.db.ExecContext(ctx, query,
+		log.Type,
+		log.Action,
+		log.Target,
+		log.UserID,
+		log.Metadata,
+		log.CreatedAt,
+	)
+
+	return err
+}
+
+// ListRecentActivities 查询最近活动日志
+func (s *SQLiteStorage) ListRecentActivities(ctx context.Context, limit int) ([]*ActivityLog, error) {
+	query := `
+	SELECT id, type, action, target, user_id, metadata, created_at
+	FROM activity_logs
+	ORDER BY created_at DESC
+	LIMIT ?
+	`
+
+	rows, err := s.db.QueryContext(ctx, query, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var activities []*ActivityLog
+	for rows.Next() {
+		var log ActivityLog
+		var metadata sql.NullString
+
+		err := rows.Scan(
+			&log.ID,
+			&log.Type,
+			&log.Action,
+			&log.Target,
+			&log.UserID,
+			&metadata,
+			&log.CreatedAt,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		if metadata.Valid {
+			log.Metadata = metadata.String
+		}
+
+		activities = append(activities, &log)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return activities, nil
+}
+
+// ListActivitiesByService 按服务 ID 查询活动日志
+func (s *SQLiteStorage) ListActivitiesByService(ctx context.Context, serviceID string, limit int) ([]*ActivityLog, error) {
+	query := `
+	SELECT id, type, action, target, user_id, metadata, created_at
+	FROM activity_logs
+	WHERE metadata LIKE ?
+	ORDER BY created_at DESC
+	LIMIT ?
+	`
+
+	// 使用 LIKE 查询包含 service_id 的记录
+	likePattern := fmt.Sprintf(`%%"service_id":"%s"%%`, serviceID)
+
+	rows, err := s.db.QueryContext(ctx, query, likePattern, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var activities []*ActivityLog
+	for rows.Next() {
+		var log ActivityLog
+		var metadata sql.NullString
+
+		err := rows.Scan(
+			&log.ID,
+			&log.Type,
+			&log.Action,
+			&log.Target,
+			&log.UserID,
+			&metadata,
+			&log.CreatedAt,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		if metadata.Valid {
+			log.Metadata = metadata.String
+		}
+
+		activities = append(activities, &log)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return activities, nil
+}
+
+// MaintainWAL 维护 WAL模式
 func (s *SQLiteStorage) MaintainWAL() error {
 	// 检查当前journal模式
 	var journalMode string
@@ -1125,6 +1262,6 @@ func (s *SQLiteStorage) MaintainWAL() error {
 		return fmt.Errorf("执行WAL检查点失败：%w", err)
 	}
 
-	log.Printf("WAL维护完成：已执行检查点")
+	logger.Storage().Printf("WAL 维护完成：已执行检查点")
 	return nil
 }

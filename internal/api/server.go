@@ -112,10 +112,27 @@ func NewServer(cfg *config.Config, storage storagepkg.Storage, configPath string
 	// 注册路由
 	server.registerRoutes()
 
+	// 初始化调度器与代理服务的关联
+	server.initializeSchedulerProxy()
+
 	// 启动后台清理任务
 	go server.cleanupLoop()
 
 	return server
+}
+
+// initializeSchedulerProxy 初始化调度器与代理服务的关联
+func (s *Server) initializeSchedulerProxy() {
+	if s.scheduler != nil && s.proxyService != nil {
+		// 使用类型断言来调用 SetProxyService
+		type schedulerWithProxy interface {
+			SetProxyService(proxySvc interface{ CleanupExpiredSessions() })
+		}
+		if sched, ok := s.scheduler.(schedulerWithProxy); ok {
+			sched.SetProxyService(s.proxyService)
+			fmt.Println("[Server] 已设置调度器的代理服务，将定期清理过期会话")
+		}
+	}
 }
 
 // setupCORS 配置 CORS
@@ -384,6 +401,7 @@ func (s *Server) registerRoutes() {
 		// 服务管理（普通用户可读，管理员可写）
 		v1Group.GET("/services", serviceHandler.ListServices)
 		v1Group.GET("/services/stats", serviceHandler.GetStats)
+		v1Group.GET("/services/activities", serviceHandler.GetRecentActivities)
 		v1Group.GET("/services/:id", serviceHandler.GetService)
 		v1Group.GET("/services/:id/check", serviceHandler.CheckService)
 		v1Group.GET("/services/:id/models", serviceHandler.GetModels)

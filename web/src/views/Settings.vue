@@ -1174,9 +1174,11 @@ watch(activeTab, (newTab) => {
 .page-title {
   font-size: 24px;
   font-weight: 700;
-  color: #1e293b;
+  color: var(--text-primary);
   margin: 0 0 4px 0;
+  transition: color 0.3s ease;
 }
+
 
 .page-desc {
   font-size: 14px;
@@ -1244,9 +1246,11 @@ watch(activeTab, (newTab) => {
 .section-title {
   font-size: 18px;
   font-weight: 600;
-  color: #1e293b;
+  color: var(--text-primary);
   margin: 0 0 4px 0;
+  transition: color 0.3s ease;
 }
+
 
 .section-desc {
   font-size: 13px;
@@ -1259,11 +1263,18 @@ watch(activeTab, (newTab) => {
   max-width: 700px;
 }
 
+.settings-form .el-form-item {
+  margin-bottom: 20px;
+}
+
 .form-group {
   margin-bottom: 32px;
   padding: 24px;
   background: #f8fafc;
   border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
 }
 
 .form-group-title {
@@ -1286,17 +1297,22 @@ watch(activeTab, (newTab) => {
 
 /* 引擎卡片 */
 .engine-card {
-  background: #fff;
+  background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
   border: 1px solid #e2e8f0;
   border-radius: 12px;
   margin-bottom: 16px;
   overflow: hidden;
-  transition: all 0.3s ease;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  display: flex;
+  flex-direction: column;
+  box-shadow: var(--shadow-sm);
 }
 
 .engine-card:hover {
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  box-shadow: var(--shadow-md);
 }
+
+
 
 .engine-header {
   display: flex;
@@ -1304,7 +1320,9 @@ watch(activeTab, (newTab) => {
   align-items: center;
   padding: 20px;
   background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+  border-bottom: 1px solid #e2e8f0;
 }
+
 
 .engine-info {
   display: flex;
@@ -1319,9 +1337,11 @@ watch(activeTab, (newTab) => {
 .engine-name {
   font-size: 16px;
   font-weight: 600;
-  color: #1e293b;
+  color: #0f172a;
   margin: 0 0 2px 0;
+  letter-spacing: 0.3px;
 }
+
 
 .engine-desc {
   font-size: 12px;
@@ -1331,8 +1351,12 @@ watch(activeTab, (newTab) => {
 
 .engine-body {
   padding: 20px;
-  background: #fff;
+  background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
 }
+
 
 /* 关于部分 */
 .about-section {
@@ -1362,9 +1386,11 @@ watch(activeTab, (newTab) => {
 .about-title {
   font-size: 28px;
   font-weight: 700;
-  color: #1e293b;
+  color: var(--text-primary);
   margin: 0 0 8px 0;
+  transition: color 0.3s ease;
 }
+
 
 .about-version {
   font-size: 14px;
@@ -1399,8 +1425,10 @@ watch(activeTab, (newTab) => {
 }
 
 .info-value {
-  color: #1e293b;
+  color: var(--text-primary);
+  transition: color 0.3s ease;
 }
+
 
 .about-actions {
   display: flex;
@@ -1425,6 +1453,15 @@ watch(activeTab, (newTab) => {
 
   .form-actions .el-button {
     width: 100%;
+  }
+  
+  .section-header {
+    flex-direction: column;
+    text-align: center;
+  }
+  
+  .engines-grid {
+    grid-template-columns: 1fr;
   }
 }
 </style>

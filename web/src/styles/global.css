@@ -9,12 +9,15 @@
 
   /* 功能色 */
   --success-color: #10b981;
+  --success-light: #34d399;
   --warning-color: #f59e0b;
+  --warning-light: #fbbf24;
   --danger-color: #ef4444;
+  --danger-light: #f87171;
   --info-color: #6366f1;
 
   /* 中性色 */
-  --text-primary: #1e293b;
+  --text-primary: #0f172a;
   --text-secondary: #475569;
   --text-tertiary: #94a3b8;
   --text-disabled: #cbd5e1;
@@ -23,6 +26,7 @@
   --bg-primary: #ffffff;
   --bg-secondary: #f8fafc;
   --bg-tertiary: #f1f5f9;
+  --bg-gradient: linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%);
 
   /* 边框色 */
   --border-color: #e2e8f0;
@@ -30,9 +34,10 @@
 
   /* 阴影 */
   --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
-  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
-  --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+  --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+  --shadow-2xl: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
 
   /* 圆角 */
   --radius-sm: 6px;
@@ -42,23 +47,8 @@
 
   /* 过渡 */
   --transition-fast: 0.15s ease;
-  --transition-base: 0.3s ease;
+  --transition-base: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   --transition-slow: 0.5s ease;
-}
-
-/* 深色模式 */
-.dark {
-  --text-primary: #f1f5f9;
-  --text-secondary: #cbd5e1;
-  --text-tertiary: #94a3b8;
-  --text-disabled: #64748b;
-
-  --bg-primary: #1e293b;
-  --bg-secondary: #0f172a;
-  --bg-tertiary: #334155;
-
-  --border-color: #334155;
-  --border-light: #1e293b;
 }
 
 /* 基础样式重置 */
@@ -79,7 +69,8 @@ body {
     'Microsoft YaHei', '微软雅黑', Arial, sans-serif;
   line-height: 1.6;
   color: var(--text-primary);
-  background: var(--bg-secondary);
+  background: var(--bg-gradient);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 #app {
@@ -349,14 +340,33 @@ body {
 /* 卡片覆盖 */
 .el-card {
   border: none;
-  box-shadow: var(--shadow-sm);
+  box-shadow: var(--shadow-md);
+  border-radius: var(--radius-md);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  background: var(--bg-primary);
 }
+
+.el-card:hover {
+  box-shadow: var(--shadow-lg);
+  transform: translateY(-2px);
+}
+
+
+
+
 
 .el-card__header {
   padding: 16px 20px;
   border-bottom: 1px solid var(--border-light);
   font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: linear-gradient(135deg, rgba(79, 70, 229, 0.03) 0%, rgba(124, 58, 237, 0.03) 100%);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
+
+
 
 .el-card__body {
   padding: 20px;
@@ -364,28 +374,39 @@ body {
 
 /* 按钮覆盖 */
 .el-button {
-  font-weight: 500;
-  transition: all var(--transition-base);
+  font-weight: 600;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  letter-spacing: 0.3px;
 }
 
 .el-button:hover {
-  transform: translateY(-1px);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
 }
+
+
 
 .el-button--primary {
   background: linear-gradient(135deg, var(--primary-color) 0%, var(--primary-light) 100%);
   border: none;
+  box-shadow: 0 2px 8px rgba(79, 70, 229, 0.3);
 }
 
 .el-button--primary:hover {
   background: linear-gradient(135deg, var(--primary-dark) 0%, var(--primary-color) 100%);
-  box-shadow: 0 4px 12px rgba(79, 70, 229, 0.4);
+  box-shadow: 0 6px 20px rgba(79, 70, 229, 0.5);
+  transform: translateY(-3px);
 }
+
+
+
+
 
 /* 输入框覆盖 */
 .el-input__wrapper {
   border-radius: var(--radius-md);
-  transition: all var(--transition-base);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  background: var(--bg-primary);
 }
 
 .el-input__wrapper:hover {
@@ -393,8 +414,14 @@ body {
 }
 
 .el-input__wrapper.is-focus {
-  box-shadow: 0 0 0 1px var(--primary-color) inset;
+  box-shadow: 0 0 0 1px var(--primary-color) inset, 0 2px 8px rgba(79, 70, 229, 0.2);
 }
+
+
+
+
+
+
 
 /* 选择器覆盖 */
 .el-select .el-input__wrapper {
@@ -411,22 +438,46 @@ body {
 .el-table {
   border-radius: var(--radius-md);
   overflow: hidden;
+  width: 100%;
+  box-shadow: var(--shadow-sm);
+  background: var(--bg-primary);
 }
+
+
 
 .el-table__row {
   transition: background var(--transition-fast);
 }
 
+.el-table th,
+.el-table td {
+  padding: 12px 16px;
+}
+
+.el-table tr:hover {
+  background: var(--bg-tertiary);
+}
+
+
+
 /* 对话框覆盖 */
 .el-dialog {
   border-radius: var(--radius-lg);
   overflow: hidden;
+  margin-top: 4vh !important;
+  box-shadow: var(--shadow-2xl);
+  background: var(--bg-primary);
 }
+
+
 
 .el-dialog__header {
   padding: 20px 24px;
   border-bottom: 1px solid var(--border-light);
+  background: linear-gradient(135deg, rgba(79, 70, 229, 0.03) 0%, rgba(124, 58, 237, 0.03) 100%);
 }
+
+
 
 .el-dialog__body {
   padding: 24px;
@@ -443,6 +494,8 @@ body {
   margin: 4px 0;
   transition: all var(--transition-base);
 }
+
+
 
 /* 进度条覆盖 */
 .el-progress-bar__inner {

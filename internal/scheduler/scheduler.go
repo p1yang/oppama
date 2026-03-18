@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"oppama/internal/config"
 	"oppama/internal/detector"
 	"oppama/internal/storage"
 	"oppama/internal/task"
@@ -19,21 +20,46 @@ type Scheduler struct {
 	modelInterval time.Duration // 模型同步间隔
 	stopChan      chan struct{}
 	tickers       map[string]*time.Ticker
+	tickersMu     sync.RWMutex // 保护 tickers map
 	detectorCfg   *detector.DetectorConfig
 	detectorCfgMu sync.RWMutex
+	config        *config.DetectorConfig // 保存配置对象的引用以读取间隔设置
+	// 代理会话清理相关
+	proxyService       interface{ CleanupExpiredSessions() } // 代理服务接口
+	sessionCleanTicker *time.Ticker
 }
 
 // NewScheduler 创建调度器
-func NewScheduler(taskMgr *task.Manager, storage storage.Storage, detectorCfg *detector.DetectorConfig) *Scheduler {
+func NewScheduler(taskMgr *task.Manager, storage storage.Storage, detectorCfg *detector.DetectorConfig, config *config.DetectorConfig) *Scheduler {
+	// 从配置中获取间隔设置（单位转换为分钟）
+	healthCheckInterval := 5 * time.Minute // 默认 5 分钟
+	modelSyncInterval := 10 * time.Minute  // 默认 10 分钟
+
+	if config != nil {
+		if config.CheckInterval > 0 {
+			healthCheckInterval = time.Duration(config.CheckInterval) * time.Second
+		}
+		if config.ModelSyncInterval > 0 {
+			modelSyncInterval = time.Duration(config.ModelSyncInterval) * time.Second
+		}
+	}
+
 	return &Scheduler{
 		taskMgr:       taskMgr,
 		storage:       storage,
-		interval:      5 * time.Minute,  // 默认 5 分钟健康检查
-		modelInterval: 10 * time.Minute, // 默认 10 分钟模型同步
+		interval:      healthCheckInterval,
+		modelInterval: modelSyncInterval,
 		stopChan:      make(chan struct{}),
 		tickers:       make(map[string]*time.Ticker),
 		detectorCfg:   detectorCfg,
+		config:        config,
 	}
+}
+
+// SetProxyService 设置代理服务（用于会话清理）
+func (s *Scheduler) SetProxyService(proxySvc interface{ CleanupExpiredSessions() }) {
+	s.proxyService = proxySvc
+	log.Printf("[Scheduler] 代理服务已设置，将定期清理过期会话")
 }
 
 // UpdateDetectorConfig 更新检测器配置
@@ -114,6 +140,11 @@ func (s *Scheduler) Start() {
 	// 启动模型同步任务
 	go s.startModelSync()
 
+	// 启动会话清理任务（如果有代理服务）
+	if s.proxyService != nil {
+		go s.startSessionCleanup()
+	}
+
 	log.Println("定时任务调度器启动成功")
 }
 
@@ -122,10 +153,12 @@ func (s *Scheduler) Stop() {
 	log.Println("停止定时任务调度器...")
 	close(s.stopChan)
 
-	// 停止所有 ticker
+	// 安全地读取并停止所有 ticker
+	s.tickersMu.RLock()
 	for _, ticker := range s.tickers {
 		ticker.Stop()
 	}
+	s.tickersMu.RUnlock()
 }
 
 // startHealthCheck 启动定期健康检查
@@ -133,7 +166,12 @@ func (s *Scheduler) startHealthCheck() {
 	s.detectorCfgMu.RLock()
 	ticker := time.NewTicker(s.interval)
 	s.detectorCfgMu.RUnlock()
+
+	// 安全地写入 tickers map
+	s.tickersMu.Lock()
 	s.tickers["health_check"] = ticker
+	s.tickersMu.Unlock()
+
 	defer ticker.Stop()
 
 	log.Printf("启动定期健康检查，间隔：%v", s.interval)
@@ -222,7 +260,12 @@ func (s *Scheduler) startModelSync() {
 	s.detectorCfgMu.RUnlock()
 
 	ticker := time.NewTicker(interval)
+
+	// 安全地写入 tickers map
+	s.tickersMu.Lock()
 	s.tickers["model_sync"] = ticker
+	s.tickersMu.Unlock()
+
 	defer ticker.Stop()
 
 	log.Printf("启动定期模型同步，间隔：%v", interval)
@@ -304,4 +347,27 @@ func (s *Scheduler) runModelSync() {
 	// 等待所有检测完成
 	wg.Wait()
 	log.Println("模型同步完成")
+}
+
+// startSessionCleanup 启动定期会话清理
+func (s *Scheduler) startSessionCleanup() {
+	if s.proxyService == nil {
+		return
+	}
+
+	// 每 5 分钟清理一次过期会话
+	ticker := time.NewTicker(5 * time.Minute)
+	defer ticker.Stop()
+
+	log.Printf("[Scheduler] 启动定期会话清理，间隔：5 分钟")
+
+	for {
+		select {
+		case <-ticker.C:
+			s.proxyService.CleanupExpiredSessions()
+		case <-s.stopChan:
+			log.Println("[Scheduler] 停止会话清理任务")
+			return
+		}
+	}
 }

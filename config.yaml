@@ -4,7 +4,7 @@ server:
     mode: release
 proxy:
     enabled: true
-    enable_auth: false
+    enable_auth: true
     api_key: admin123
     default_model: ""
     fallback_enabled: true
@@ -52,7 +52,8 @@ cors:
 detector:
     concurrency: 10
     timeout: 30
-    check_interval: 300
+    check_interval: 3600
+    model_sync_interval: 3600
     honeypot_detection:
         enabled: true
         suspicious_ports:
@@ -75,12 +76,12 @@ discovery:
             query: port="11434"
             max_results: 100
         hunter:
-            enabled: true
+            enabled: false
             key: 5837e59cacced34bcfd3d15bc343e7f4a07696cafe11d8e6de04c68341931b23
             query: port="11434"
             max_results: 100
         shodan:
-            enabled: true
+            enabled: false
             key: Su5MSEONomqumcQd4gFmWlk2izdsNafA
             query: http.title:"Ollama"
             max_results: 100

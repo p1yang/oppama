@@ -3,12 +3,14 @@ package v1
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
+	"regexp"
+	"strings"
 	"time"
 
 	"oppama/internal/proxy"
 	"oppama/internal/storage"
+	"oppama/internal/utils/logger"
 
 	"github.com/gin-gonic/gin"
 )
@@ -54,6 +56,10 @@ func (sc *SystemContent) UnmarshalJSON(data []byte) error {
 			if block.Type == "text" {
 				sc.RawString += block.Text
 			}
+			// 对于图像内容，添加到原始字符串中作为描述
+			if block.Type == "image" && block.Source != nil {
+				sc.RawString += "[图像]"
+			}
 		}
 		return nil
 	}
@@ -74,27 +80,59 @@ func (sc *SystemContent) String() string {
 	return sc.RawString
 }
 
-// MessagesRequest Anthropic Messages API 请求
-type MessagesRequest struct {
-	Model         string        `json:"model" binding:"required"`
-	Messages      []Message     `json:"messages" binding:"required,min=1"`
-	System        SystemContent `json:"system,omitempty"`
-	MaxTokens     int           `json:"max_tokens" binding:"required"`
-	Temperature   float64       `json:"temperature,omitempty"`
-	TopP          float64       `json:"top_p,omitempty"`
-	TopK          int           `json:"top_k,omitempty"`
-	StopSequences []string      `json:"stop_sequences,omitempty"`
-	Stream        bool          `json:"stream,omitempty"`
-	Metadata      *Metadata     `json:"metadata,omitempty"`
+// Tool 工具定义
+type Tool struct {
+	Name        string                 `json:"name"`
+	Description string                 `json:"description,omitempty"`
+	InputSchema map[string]interface{} `json:"input_schema"` // JSON Schema
 }
 
-// ContentBlock 内容块，支持文本和多模态
+// ToolChoice 工具选择
+type ToolChoice struct {
+	Type string `json:"type"` // "auto", "any", "tool"
+	Name string `json:"name,omitempty"`
+}
+
+// ResponseFormat 响应格式
+type ResponseFormat struct {
+	Type string `json:"type"` // "text" 或 "json_object"
+}
+
+// MessagesRequest Anthropic Messages API 请求
+type MessagesRequest struct {
+	Model          string          `json:"model" binding:"required"`
+	Messages       []Message       `json:"messages" binding:"required,min=1"`
+	System         SystemContent   `json:"system,omitempty"`
+	MaxTokens      int             `json:"max_tokens" binding:"required"`
+	Temperature    float64         `json:"temperature,omitempty"`
+	TopP           float64         `json:"top_p,omitempty"`
+	TopK           int             `json:"top_k,omitempty"`
+	StopSequences  []string        `json:"stop_sequences,omitempty"`
+	Stream         bool            `json:"stream,omitempty"`
+	Metadata       *Metadata       `json:"metadata,omitempty"`
+	Tools          []Tool          `json:"tools,omitempty"`           // 可用工具列表
+	ToolChoice     *ToolChoice     `json:"tool_choice,omitempty"`     // 工具选择策略
+	ResponseFormat *ResponseFormat `json:"response_format,omitempty"` // 响应格式
+}
+
+// ImageSource 图像源，支持 base64 和 url
+type ImageSource struct {
+	Type      string `json:"type"`           // "base64" 或 "url"
+	MediaType string `json:"media_type"`     // "image/jpeg", "image/png", "image/gif", "image/webp"
+	Data      string `json:"data,omitempty"` // base64 编码的图像数据
+	URL       string `json:"url,omitempty"`  // 图像 URL
+}
+
+// ContentBlock 内容块，支持文本、图像和工具使用
 type ContentBlock struct {
-	Type     string `json:"type"`
-	Text     string `json:"text,omitempty"`
-	ImageURL *struct {
-		URL string `json:"url"`
-	} `json:"image_url,omitempty"`
+	Type    string       `json:"type"`               // "text", "image", "tool_use", "tool_result"
+	Text    string       `json:"text,omitempty"`     // 文本内容
+	Source  *ImageSource `json:"source,omitempty"`   // 图像源
+	ID      string       `json:"id,omitempty"`       // 工具使用 ID
+	Name    string       `json:"name,omitempty"`     // 工具名称
+	Input   interface{}  `json:"input,omitempty"`    // 工具输入
+	Content interface{}  `json:"content,omitempty"`  // 工具结果内容
+	IsError bool         `json:"is_error,omitempty"` // 工具调用是否出错
 }
 
 // MessageContent 消息内容，支持字符串或内容块数组
@@ -121,8 +159,19 @@ func (mc *MessageContent) UnmarshalJSON(data []byte) error {
 		mc.IsArray = true
 		// 合并所有文本内容
 		for _, block := range blocks {
-			if block.Type == "text" {
+			switch block.Type {
+			case "text":
 				mc.RawString += block.Text
+			case "image":
+				if block.Source != nil {
+					mc.RawString += "[图像]"
+				}
+			case "tool_use":
+				mc.RawString += fmt.Sprintf("[工具调用：%s]", block.Name)
+			case "tool_result":
+				if result, ok := block.Content.(string); ok {
+					mc.RawString += fmt.Sprintf("[工具结果：%s]", result)
+				}
 			}
 		}
 		return nil
@@ -175,32 +224,35 @@ type UsageInfo struct {
 
 // StreamEvent 流式事件
 type StreamEvent struct {
-	Type    string            `json:"type"`
-	Index   int               `json:"index,omitempty"`
-	Delta   *Delta            `json:"delta,omitempty"`
-	Message *MessagesResponse `json:"message,omitempty"`
-	Usage   *UsageInfo        `json:"usage,omitempty"`
+	Type         string            `json:"type"`
+	Index        int               `json:"index,omitempty"`
+	Delta        *Delta            `json:"delta,omitempty"`
+	Message      *MessagesResponse `json:"message,omitempty"`
+	Usage        *UsageInfo        `json:"usage,omitempty"`
+	ContentBlock *ContentBlock     `json:"content_block,omitempty"` // 用于 content_block_start/stop
 }
 
 // Delta 增量内容
 type Delta struct {
-	Type         string `json:"type"`
-	Text         string `json:"text,omitempty"`
-	StopReason   string `json:"stop_reason,omitempty"`
-	StopSequence string `json:"stop_sequence,omitempty"`
+	Type        string `json:"type"`
+	Text        string `json:"text,omitempty"`
+	StopReason  string `json:"stop_reason,omitempty"`
+	PartialJSON string `json:"partial_json,omitempty"` // 用于工具调用的部分 JSON
 }
 
 // Messages 处理 Messages API 请求
 func (h *AnthropicHandler) Messages(c *gin.Context) {
 	var req MessagesRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"type": "error",
-			"error": gin.H{
-				"type":    "invalid_request_error",
-				"message": fmt.Sprintf("请求参数错误：%v", err),
-			},
-		})
+		h.sendError(c, http.StatusBadRequest, "invalid_request_error",
+			fmt.Sprintf("请求参数错误：%v", err))
+		return
+	}
+
+	// 检查预填充（已弃用）
+	if h.hasPrefill(&req) {
+		h.sendError(c, http.StatusBadRequest, "invalid_request_error",
+			"预填充(prefill)在 Claude Opus 4.6 和 Claude Sonnet 4.5 上已被弃用，请使用结构化输出或系统提示指令")
 		return
 	}
 
@@ -214,19 +266,30 @@ func (h *AnthropicHandler) Messages(c *gin.Context) {
 	openaiReq := h.convertToOpenAIFormat(&req)
 	resp, err := h.proxy.ChatCompletions(c.Request.Context(), openaiReq)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"type": "error",
-			"error": gin.H{
-				"type":    "api_error",
-				"message": fmt.Sprintf("代理错误：%v", err),
-			},
-		})
+		h.sendError(c, http.StatusInternalServerError, "api_error",
+			fmt.Sprintf("代理错误：%v", err))
 		return
 	}
 
 	// 转换为 Anthropic 格式
 	anthropicResp := h.convertToAnthropicFormat(resp, &req)
 	c.JSON(http.StatusOK, anthropicResp)
+}
+
+// hasPrefill 检查请求是否包含预填充
+func (h *AnthropicHandler) hasPrefill(req *MessagesRequest) bool {
+	// 预填充通常表现为最后一条消息是 assistant 消息
+	if len(req.Messages) > 0 {
+		lastMessage := req.Messages[len(req.Messages)-1]
+		if lastMessage.Role == "assistant" {
+			// 检查是否是部分内容（预填充的特征）
+			content := lastMessage.Content.String()
+			if strings.Contains(content, "(") || strings.Contains(content, "The answer is") {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // handleStreamMessages 处理流式 Messages API 请求
@@ -237,36 +300,23 @@ func (h *AnthropicHandler) handleStreamMessages(c *gin.Context, req *MessagesReq
 	c.Header("Connection", "keep-alive")
 	c.Header("Transfer-Encoding", "chunked")
 	c.Header("X-Accel-Buffering", "no")
+	c.Header("Access-Control-Allow-Origin", "*")
 
 	ctx := c.Request.Context()
 
 	// 转换为 OpenAI 格式
 	openaiReq := h.convertToOpenAIFormat(req)
 
-	// 发送消息开始事件
-	messageStart := StreamEvent{
-		Type: "message_start",
-		Message: &MessagesResponse{
-			ID:      fmt.Sprintf("msg_%d", time.Now().UnixNano()),
-			Type:    "message",
-			Role:    "assistant",
-			Content: []ContentBlock{{Type: "text", Text: ""}},
-			Model:   req.Model,
-			Usage:   UsageInfo{InputTokens: 0, OutputTokens: 0},
-		},
-	}
-	data, _ := json.Marshal(messageStart)
-	c.Writer.WriteString(fmt.Sprintf("event: message_start\ndata: %s\n\n", string(data)))
-	c.Writer.Flush()
+	// 生成消息 ID
+	messageID := fmt.Sprintf("msg_%d", time.Now().UnixNano())
 
-	contentBlockStart := StreamEvent{
-		Type:  "content_block_start",
-		Index: 0,
-		Delta: &Delta{Type: "text_delta", Text: ""},
-	}
-	data, _ = json.Marshal(contentBlockStart)
-	c.Writer.WriteString(fmt.Sprintf("event: content_block_start\ndata: %s\n\n", string(data)))
-	c.Writer.Flush()
+	// 跟踪 token 使用
+	var inputTokens, outputTokens int
+
+	// 跟踪是否已经发送了某个类型的内容块开始事件
+	sentTextStart := false
+	sentToolStart := make(map[int]bool) // tool_index -> started
+	toolIndex := 0                      // 工具调用索引
 
 	// 调用流式接口
 	err := h.proxy.StreamChatCompletions(ctx, openaiReq, func(chunk *proxy.ChatCompletionResponse) error {
@@ -275,66 +325,125 @@ func (h *AnthropicHandler) handleStreamMessages(c *gin.Context, req *MessagesReq
 		}
 
 		delta := chunk.Choices[0].Delta
+
+		// 更新 token 统计
+		if chunk.Usage.PromptTokens > 0 {
+			inputTokens = chunk.Usage.PromptTokens
+		}
+		if chunk.Usage.CompletionTokens > 0 {
+			outputTokens = chunk.Usage.CompletionTokens
+		}
+
+		// 1. 处理文本内容（如果有）
 		if delta.Content != "" {
-			contentBlockDelta := StreamEvent{
-				Type:  "content_block_delta",
-				Index: 0,
-				Delta: &Delta{
-					Type: "text_delta",
-					Text: delta.Content,
-				},
+			// 如果是第一次有文本内容，先发送 message_start 和 content_block_start
+			if !sentTextStart {
+				// 发送消息开始事件（简化格式）
+				messageStartJSON := fmt.Sprintf(`{"type":"message_start","message":{"id":"%s","type":"message","role":"assistant","content":[{"type":"text","text":""}],"model":"%s","stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":0,"output_tokens":0}}}`, messageID, req.Model)
+				c.Writer.WriteString(fmt.Sprintf("event: message_start\ndata:%s\n\n", messageStartJSON))
+				c.Writer.Flush()
+
+				// 发送内容块开始事件（简化格式）
+				c.Writer.WriteString("event: content_block_start\ndata:{\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n")
+				c.Writer.Flush()
+
+				sentTextStart = true
 			}
-			data, err := json.Marshal(contentBlockDelta)
-			if err != nil {
-				return err
-			}
-			_, err = c.Writer.WriteString(fmt.Sprintf("event: content_block_delta\ndata: %s\n\n", string(data)))
-			if err != nil {
-				return err
+
+			// 发送文本增量
+			jsonData := fmt.Sprintf(`{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":%q}}`, delta.Content)
+			_, writeErr := c.Writer.WriteString(fmt.Sprintf("event: content_block_delta\ndata:%s\n\n", jsonData))
+			if writeErr != nil {
+				return writeErr
 			}
 			c.Writer.Flush()
 		}
+
+		// 2. 处理工具调用
+		if len(delta.ToolCalls) > 0 {
+			for _, toolCall := range delta.ToolCalls {
+				// 检查这个工具调用是否已经开始
+				if !sentToolStart[toolIndex] {
+					// 如果是第一个内容块，且之前没有发送过开始事件，需要发送 message_start
+					if !sentTextStart && len(sentToolStart) == 0 {
+						messageStartJSON := fmt.Sprintf(`{"type":"message_start","message":{"id":"%s","type":"message","role":"assistant","content":[{"type":"text","text":""}],"model":"%s","stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":0,"output_tokens":0}}}`, messageID, req.Model)
+						c.Writer.WriteString(fmt.Sprintf("event: message_start\ndata:%s\n\n", messageStartJSON))
+						c.Writer.Flush()
+					}
+
+					// 发送工具调用内容块开始事件
+					toolStartData := fmt.Sprintf(`{"type":"content_block_start","index":%d,"content_block":{"type":"tool_use","id":"%s","name":"%s","input":{}}}`, toolIndex, toolCall.ID, toolCall.Function.Name)
+					c.Writer.WriteString(fmt.Sprintf("event: content_block_start\ndata:%s\n\n", toolStartData))
+					c.Writer.Flush()
+
+					sentToolStart[toolIndex] = true
+				}
+
+				// 发送工具调用输入数据（input_json_delta）
+				if toolCall.Function.Arguments != nil {
+					var argsStr string
+					switch args := toolCall.Function.Arguments.(type) {
+					case string:
+						argsStr = args
+					default:
+						if argsJSON, err := json.Marshal(args); err == nil {
+							argsStr = string(argsJSON)
+						}
+					}
+
+					if argsStr != "" {
+						toolDeltaData := fmt.Sprintf(`{"type":"content_block_delta","index":%d,"delta":{"type":"input_json_delta","partial_json":%q}}`, toolIndex, argsStr)
+						c.Writer.WriteString(fmt.Sprintf("event: content_block_delta\ndata:%s\n\n", toolDeltaData))
+						c.Writer.Flush()
+					}
+				}
+
+				toolIndex++
+			}
+		}
+
 		return nil
 	})
 
 	if err != nil {
-		log.Printf("[Anthropic] 流式请求失败：%v", err)
+		// 检查是否是客户端主动断开连接（context canceled）
+		if strings.Contains(err.Error(), "context canceled") {
+			logger.API().Printf("客户端断开流式连接（正常行为）")
+			// 不发送错误响应，直接返回
+			return
+		}
+		logger.API().Printf("流式请求失败：%v", err)
+		h.sendStreamError(c, "api_error", fmt.Sprintf("流式请求失败：%v", err))
 		return
 	}
 
-	// 发送内容块结束事件
-	contentBlockStop := StreamEvent{
-		Type:  "content_block_stop",
-		Index: 0,
+	// 发送所有内容块的结束事件
+	// 如果发送过文本开始，才发送文本结束
+	if sentTextStart {
+		c.Writer.WriteString("event: content_block_stop\ndata:{\"type\":\"content_block_stop\",\"index\":0}\n\n")
+		c.Writer.Flush()
 	}
-	data, _ = json.Marshal(contentBlockStop)
-	c.Writer.WriteString(fmt.Sprintf("event: content_block_stop\ndata: %s\n\n", string(data)))
+
+	// 发送所有工具调用的结束事件
+	for idx := range sentToolStart {
+		toolStopData := fmt.Sprintf(`{"type":"content_block_stop","index":%d}`, idx)
+		c.Writer.WriteString(fmt.Sprintf("event: content_block_stop\ndata:%s\n\n", toolStopData))
+		c.Writer.Flush()
+	}
+
+	// 确定 stop_reason
+	stopReason := "end_turn"
+	if len(sentToolStart) > 0 {
+		stopReason = "tool_use"
+	}
+
+	// 发送消息结束事件（包含 usage 统计，简化格式）
+	messageDeltaJSON := fmt.Sprintf(`{"type":"message_delta","delta":{"stop_reason":"%s","stop_sequence":null},"usage":{"input_tokens":%d,"output_tokens":%d}}`, stopReason, inputTokens, outputTokens)
+	c.Writer.WriteString(fmt.Sprintf("event: message_delta\ndata:%s\n\n", messageDeltaJSON))
 	c.Writer.Flush()
 
-	// 发送消息结束事件
-	messageDelta := StreamEvent{
-		Type: "message_delta",
-		Delta: &Delta{
-			StopReason: "end_turn",
-		},
-		Usage: &UsageInfo{
-			OutputTokens: 0,
-		},
-	}
-	data, _ = json.Marshal(messageDelta)
-	c.Writer.WriteString(fmt.Sprintf("event: message_delta\ndata: %s\n\n", string(data)))
-	c.Writer.Flush()
-
-	// 发送完成事件
-	messageStop := StreamEvent{
-		Type: "message_stop",
-	}
-	data, _ = json.Marshal(messageStop)
-	c.Writer.WriteString(fmt.Sprintf("event: message_stop\ndata: %s\n\n", string(data)))
-	c.Writer.Flush()
-
-	// 发送 [DONE] 标记
-	c.Writer.WriteString("data: [DONE]\n\n")
+	// 发送完成事件（简化格式）
+	c.Writer.WriteString("event: message_stop\ndata:{\"type\":\"message_stop\"}\n\n")
 	c.Writer.Flush()
 }
 
@@ -352,10 +461,99 @@ func (h *AnthropicHandler) convertToOpenAIFormat(req *MessagesRequest) *proxy.Ch
 
 	// 转换消息
 	for _, msg := range req.Messages {
+		// 检查消息内容是否包含工具调用或图像
+		var toolCalls []proxy.ToolCall
+		var content string
+
+		if msg.Content.IsArray {
+			// 处理内容块数组（可能包含文本、图像、工具调用）
+			var textParts []string
+			for _, block := range msg.Content.ContentList {
+				switch block.Type {
+				case "text":
+					textParts = append(textParts, block.Text)
+				case "tool_use":
+					// 转换 Anthropic 工具调用为 OpenAI 格式
+					toolCall := proxy.ToolCall{
+						ID:   block.ID,
+						Type: "function",
+						Function: proxy.FunctionCall{
+							Name:      block.Name,
+							Arguments: "",
+						},
+					}
+					// 尝试将 Input 转换为 JSON 字符串
+					if block.Input != nil {
+						if inputJSON, err := json.Marshal(block.Input); err == nil {
+							toolCall.Function.Arguments = string(inputJSON)
+						}
+					}
+					toolCalls = append(toolCalls, toolCall)
+				case "tool_result":
+					// 工具调用结果，作为用户消息的内容
+					if toolResult, ok := block.Content.(string); ok {
+						textParts = append(textParts, fmt.Sprintf("工具 %s 的结果：%s", block.Name, toolResult))
+					}
+				}
+			}
+			content = strings.Join(textParts, "\n")
+		} else {
+			// 简单字符串内容
+			content = msg.Content.String()
+		}
+
 		messages = append(messages, proxy.Message{
-			Role:    msg.Role,
-			Content: msg.Content.String(), // 转换为字符串
+			Role:      msg.Role,
+			Content:   content,
+			ToolCalls: toolCalls,
 		})
+	}
+
+	// 转换工具定义
+	var tools []proxy.Tool
+	if req.Tools != nil {
+		for _, tool := range req.Tools {
+			tools = append(tools, proxy.Tool{
+				Type: "function",
+				Function: proxy.FunctionDef{
+					Name:        tool.Name,
+					Description: tool.Description,
+					Parameters:  tool.InputSchema,
+				},
+			})
+		}
+	}
+
+	// 转换工具选择
+	var toolChoice interface{}
+	if req.ToolChoice != nil {
+		if req.ToolChoice.Type == "auto" {
+			toolChoice = "auto"
+		} else if req.ToolChoice.Type == "any" {
+			toolChoice = "any"
+		} else if req.ToolChoice.Type == "tool" && req.ToolChoice.Name != "" {
+			toolChoice = map[string]interface{}{
+				"type": "function",
+				"function": map[string]string{
+					"name": req.ToolChoice.Name,
+				},
+			}
+		}
+	}
+
+	// 注意：Ollama 可能不支持 ResponseFormat，我们通过系统提示来实现结构化输出
+	// 如果请求 JSON 格式，添加到系统提示中
+	if req.ResponseFormat != nil && req.ResponseFormat.Type == "json_object" {
+		// 在系统提示中添加 JSON 输出指令
+		if req.System.String() != "" {
+			req.System.RawString = req.System.String() + "\n请以 JSON 格式回复。"
+		} else {
+			// 如果没有系统提示，创建一个
+			req.System = SystemContent{
+				RawString: "请以 JSON 格式回复。",
+				IsArray:   false,
+			}
+		}
 	}
 
 	return &proxy.ChatCompletionRequest{
@@ -365,6 +563,8 @@ func (h *AnthropicHandler) convertToOpenAIFormat(req *MessagesRequest) *proxy.Ch
 		TopP:        req.TopP,
 		MaxTokens:   req.MaxTokens,
 		Stream:      req.Stream,
+		Tools:       tools,
+		ToolChoice:  toolChoice,
 	}
 }
 
@@ -385,17 +585,75 @@ func (h *AnthropicHandler) convertToAnthropicFormat(openaiResp *proxy.ChatComple
 		}
 	}
 
-	content := openaiResp.Choices[0].Message.Content
+	choice := openaiResp.Choices[0]
+	content := choice.Message.Content
 	stopReason := "end_turn"
-	if openaiResp.Choices[0].FinishReason == "length" {
+
+	// 转换停止原因
+	switch choice.FinishReason {
+	case "length":
 		stopReason = "max_tokens"
+	case "tool_calls":
+		stopReason = "tool_use"
+	case "stop":
+		stopReason = "end_turn"
+	case "content_filter":
+		stopReason = "content_filter"
+	}
+
+	// 构建内容块数组 - 始终是数组格式
+	var contentBlocks []ContentBlock
+
+	// 1. 添加文本内容（如果有）
+	if content != "" {
+		contentBlocks = append(contentBlocks, ContentBlock{
+			Type: "text",
+			Text: content,
+		})
+	}
+
+	// 2. 添加工具调用内容（如果有）
+	if len(choice.Message.ToolCalls) > 0 {
+		for _, toolCall := range choice.Message.ToolCalls {
+			// 解析参数为对象
+			var input interface{}
+			switch args := toolCall.Function.Arguments.(type) {
+			case string:
+				if args != "" {
+					if err := json.Unmarshal([]byte(args), &input); err != nil {
+						logger.API().Printf("解析工具参数失败：%v", err)
+						input = toolCall.Function.Arguments // 保持原始字符串
+					}
+				} else {
+					input = make(map[string]interface{})
+				}
+			default:
+				// 如果已经是对象，直接使用
+				input = args
+			}
+
+			contentBlocks = append(contentBlocks, ContentBlock{
+				Type:  "tool_use",
+				ID:    toolCall.ID,
+				Name:  toolCall.Function.Name,
+				Input: input,
+			})
+		}
+	}
+
+	// 确保至少有一个内容块
+	if len(contentBlocks) == 0 {
+		contentBlocks = append(contentBlocks, ContentBlock{
+			Type: "text",
+			Text: "",
+		})
 	}
 
 	return &MessagesResponse{
 		ID:         openaiResp.ID,
 		Type:       "message",
 		Role:       "assistant",
-		Content:    []ContentBlock{{Type: "text", Text: content}},
+		Content:    contentBlocks,
 		Model:      req.Model,
 		StopReason: stopReason,
 		Usage: UsageInfo{
@@ -411,13 +669,7 @@ func (h *AnthropicHandler) ListModels(c *gin.Context) {
 		AvailableOnly: true,
 	})
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"type": "error",
-			"error": gin.H{
-				"type":    "api_error",
-				"message": err.Error(),
-			},
-		})
+		h.sendError(c, http.StatusInternalServerError, "api_error", err.Error())
 		return
 	}
 
@@ -434,4 +686,74 @@ func (h *AnthropicHandler) ListModels(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"data": data,
 	})
+}
+
+// parseFunctionCallsFromText 从文本中解析函数调用 (Ollama 风格)
+func (h *AnthropicHandler) parseFunctionCallsFromText(text string) []ContentBlock {
+	var blocks []ContentBlock
+
+	// 首先尝试匹配 <function_calls> 标签
+	if !strings.Contains(text, "<function_calls>") {
+		return nil
+	}
+
+	// 提取所有 <invoke> 标签（支持多行）
+	invokePattern := regexp.MustCompile(`(?s)<invoke\s+name="([^"]+)"[^>]*>(.*?)</invoke>`)
+	invokes := invokePattern.FindAllStringSubmatch(text, -1)
+
+	for _, match := range invokes {
+		if len(match) < 3 {
+			continue
+		}
+
+		funcBody := match[2]
+
+		// 尝试从函数体中提取参数
+		params := make(map[string]interface{})
+		paramPattern := regexp.MustCompile(`(?s)<parameter\s+name="([^"]+)"(?:\s+string="(true|false)")?[^>]*>(.*?)</parameter>`)
+		paramsMatches := paramPattern.FindAllStringSubmatch(funcBody, -1)
+
+		for _, paramMatch := range paramsMatches {
+			if len(paramMatch) >= 4 {
+				paramName := paramMatch[1]
+				paramValue := paramMatch[3]
+				params[paramName] = paramValue
+			}
+		}
+
+		// 创建工具调用内容块
+		toolCallBlock := ContentBlock{
+			Type: "tool_use",
+			Text: "", // 工具调用不使用 text 字段
+		}
+		// 注意：Anthropic 的工具调用格式不同，这里需要进一步处理
+		blocks = append(blocks, toolCallBlock)
+	}
+
+	return blocks
+}
+
+// sendError 发送统一的错误响应
+func (h *AnthropicHandler) sendError(c *gin.Context, statusCode int, errorType, message string) {
+	c.JSON(statusCode, gin.H{
+		"type": "error",
+		"error": gin.H{
+			"type":    errorType,
+			"message": message,
+		},
+	})
+}
+
+// sendStreamError 发送流式错误响应
+func (h *AnthropicHandler) sendStreamError(c *gin.Context, errorType, message string) {
+	errorEvent := StreamEvent{
+		Type: "error",
+		Delta: &Delta{
+			Type: "error",
+			Text: message,
+		},
+	}
+	data, _ := json.Marshal(errorEvent)
+	c.Writer.WriteString(fmt.Sprintf("event: error\ndata: %s\n\n", string(data)))
+	c.Writer.Flush()
 }

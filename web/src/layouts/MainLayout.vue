@@ -1,5 +1,5 @@
 <template>
-  <el-container class="layout-container" :class="{ 'dark-mode': isDarkMode, 'sidebar-collapsed': isCollapsed }">
+  <el-container class="layout-container" :class="{ 'sidebar-collapsed': isCollapsed }">
     <!-- 移动端遮罩 -->
     <div v-if="!isCollapsed && isMobile" class="sidebar-mask" @click="toggleSidebar"></div>
 
@@ -94,11 +94,6 @@
             <span>运行正常</span>
           </div>
 
-          <!-- 深色模式切换 -->
-          <el-tooltip :content="isDarkMode ? '切换到浅色模式' : '切换到深色模式'" placement="bottom">
-            <el-button class="theme-toggle" :icon="isDarkMode ? Sunny : Moon" circle @click="toggleDarkMode" />
-          </el-tooltip>
-
           <el-divider direction="vertical" />
 
           <!-- 用户信息 -->
@@ -164,7 +159,6 @@ const router = useRouter()
 // 侧边栏折叠状态
 const isCollapsed = ref(false)
 const isMobile = ref(false)
-const isDarkMode = ref(false)
 
 // 检查是否为移动端
 const checkMobile = () => {
@@ -177,22 +171,6 @@ const checkMobile = () => {
 // 切换侧边栏
 const toggleSidebar = () => {
   isCollapsed.value = !isCollapsed.value
-}
-
-// 切换深色模式
-const toggleDarkMode = () => {
-  isDarkMode.value = !isDarkMode.value
-  document.documentElement.classList.toggle('dark', isDarkMode.value)
-  localStorage.setItem('theme', isDarkMode.value ? 'dark' : 'light')
-}
-
-// 初始化主题
-const initTheme = () => {
-  const savedTheme = localStorage.getItem('theme')
-  if (savedTheme === 'dark' || (!savedTheme && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
-    isDarkMode.value = true
-    document.documentElement.classList.add('dark')
-  }
 }
 
 // 退出登录
@@ -244,10 +222,11 @@ onUnmounted(() => {
   flex-direction: column;
   box-shadow: 4px 0 24px rgba(0, 0, 0, 0.15);
   z-index: 100;
-  transition: width 0.3s ease;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   position: relative;
   overflow: hidden;
 }
+
 
 .sidebar.mobile {
   position: fixed;
@@ -267,9 +246,10 @@ onUnmounted(() => {
   align-items: center;
   padding: 0 24px;
   background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
-  box-shadow: 0 4px 12px rgba(79, 70, 229, 0.3);
-  transition: padding 0.3s ease;
+  box-shadow: 0 4px 16px rgba(79, 70, 229, 0.35);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
+
 
 .sidebar.collapsed .logo {
   padding: 0;
@@ -282,12 +262,14 @@ onUnmounted(() => {
   justify-content: center;
   width: 48px;
   height: 48px;
-  background: rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.18);
   border-radius: 12px;
   color: #ffffff;
   flex-shrink: 0;
-  transition: all 0.3s ease;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  backdrop-filter: blur(8px);
 }
+
 
 .sidebar.collapsed .logo-icon {
   width: 40px;
@@ -305,14 +287,18 @@ onUnmounted(() => {
   font-size: 20px;
   font-weight: 700;
   margin: 0;
+  letter-spacing: 0.8px;
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+
+.subtitle {
+  color: rgba(255, 255, 255, 0.75);
+  font-size: 11px;
+  margin-top: 2px;
   letter-spacing: 0.5px;
 }
 
-.subtitle {
-  color: rgba(255, 255, 255, 0.7);
-  font-size: 11px;
-  margin-top: 2px;
-}
 
 /* 折叠按钮 */
 .collapse-btn {
@@ -321,22 +307,24 @@ onUnmounted(() => {
   right: -12px;
   width: 24px;
   height: 24px;
-  background: #4f46e5;
+  background: linear-gradient(135deg, #4f46e5 0%, #6366f1 100%);
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
   color: #fff;
-  box-shadow: 0 2px 8px rgba(79, 70, 229, 0.4);
-  transition: all 0.3s ease;
+  box-shadow: 0 2px 12px rgba(79, 70, 229, 0.5), 0 0 0 3px rgba(79, 70, 229, 0.2);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   z-index: 10;
 }
 
+
 .collapse-btn:hover {
-  transform: scale(1.1);
-  box-shadow: 0 4px 12px rgba(79, 70, 229, 0.6);
+  transform: scale(1.15);
+  box-shadow: 0 4px 20px rgba(79, 70, 229, 0.7), 0 0 0 4px rgba(79, 70, 229, 0.3);
 }
+
 
 .sidebar.collapsed .collapse-btn {
   right: -12px;
@@ -349,40 +337,84 @@ onUnmounted(() => {
   padding: 16px 12px;
   background: transparent;
   overflow-x: hidden;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.side-menu.el-menu--collapse {
+  width: 64px;
 }
 
 .side-menu:not(.el-menu--collapse) {
-  width: 260px;
+  width: calc(260px - 24px);
 }
+
+.sidebar.collapsed .side-menu {
+  padding: 16px 0;
+}
+
 
 .menu-item {
   margin-bottom: 8px;
-  border-radius: 8px;
-  transition: all 0.3s ease;
+  border-radius: 10px;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   height: 50px;
   display: flex;
   align-items: center;
+  position: relative;
+  overflow: hidden;
+}
+
+.menu-item::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  height: 100%;
+  width: 3px;
+  background: linear-gradient(180deg, var(--primary-color), var(--primary-light));
+  transform: scaleY(0);
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.menu-item:hover::before {
+  transform: scaleY(1);
 }
 
 .menu-item:hover {
-  background: rgba(255, 255, 255, 0.08) !important;
-  transform: translateX(4px);
+  background: rgba(255, 255, 255, 0.1) !important;
+  transform: translateX(6px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
 }
 
+
 .menu-item.is-active {
-  background: linear-gradient(90deg, rgba(79, 70, 229, 0.9) 0%, rgba(124, 58, 237, 0.8) 100%) !important;
-  box-shadow: 0 4px 12px rgba(79, 70, 229, 0.4);
+  background: linear-gradient(90deg, rgba(79, 70, 229, 0.95) 0%, rgba(124, 58, 237, 0.9) 100%) !important;
+  box-shadow: 0 4px 16px rgba(79, 70, 229, 0.5), inset 0 0 0 1px rgba(255, 255, 255, 0.1);
 }
+
 
 .menu-item .el-icon {
   font-size: 18px;
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
+
+.menu-item:hover .el-icon {
+  transform: scale(1.1);
+}
+
+.menu-item.is-active .el-icon {
+  transform: scale(1.15);
+}
+
 
 /* 侧边栏底部 */
 .sidebar-footer {
   padding: 16px;
-  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(0, 0, 0, 0.1);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
+
 
 .footer-content {
   display: flex;
@@ -399,22 +431,18 @@ onUnmounted(() => {
 
 /* 顶部导航栏 */
 .header {
-  background: #ffffff;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
   border-bottom: 1px solid #e2e8f0;
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 0 32px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
   height: 70px;
-  transition: all 0.3s ease;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  backdrop-filter: blur(8px);
 }
 
-.dark-mode .header {
-  background: #1e293b;
-  border-bottom-color: #334155;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
-}
 
 .header-left {
   display: flex;
@@ -448,22 +476,21 @@ onUnmounted(() => {
   align-items: center;
   gap: 8px;
   color: #10b981;
-  font-weight: 500;
+  font-weight: 600;
   padding: 8px 16px;
   background: linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%);
-  border-radius: 20px;
+  border-radius: 24px;
   font-size: 13px;
-  transition: all 0.3s ease;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 2px 8px rgba(16, 185, 129, 0.15);
 }
 
-.dark-mode .status-indicator {
-  background: linear-gradient(135deg, #064e3b 0%, #065f46 100%);
-  color: #34d399;
-}
 
 .status-indicator .el-icon {
   font-size: 16px;
+  filter: drop-shadow(0 2px 4px rgba(16, 185, 129, 0.3));
 }
+
 
 .pulse {
   animation: pulse-animation 2s infinite;
@@ -483,17 +510,16 @@ onUnmounted(() => {
   border: none;
   background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
   color: #475569;
-  transition: all 0.3s ease;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
 }
 
-.dark-mode .theme-toggle {
-  background: linear-gradient(135deg, #334155 0%, #1e293b 100%);
-  color: #94a3b8;
-}
 
 .theme-toggle:hover {
-  transform: rotate(15deg) scale(1.1);
+  transform: rotate(15deg) scale(1.15);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
 }
+
 
 /* 用户信息 */
 .user-dropdown {
@@ -506,35 +532,33 @@ onUnmounted(() => {
   gap: 10px;
   padding: 6px 12px;
   background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
-  border-radius: 20px;
+  border-radius: 24px;
   cursor: pointer;
-  transition: all 0.3s ease;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
 }
 
-.dark-mode .user-info {
-  background: linear-gradient(135deg, #334155 0%, #1e293b 100%);
-}
 
 .user-info:hover {
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
   transform: translateY(-2px);
 }
 
+
 .username {
   font-size: 13px;
-  font-weight: 500;
+  font-weight: 600;
   color: #334155;
+  letter-spacing: 0.3px;
 }
 
-.dark-mode .username {
-  color: #cbd5e1;
-}
 
 .dropdown-icon {
   font-size: 12px;
   color: #64748b;
-  transition: transform 0.3s ease;
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
+
 
 .user-info:hover .dropdown-icon {
   transform: rotate(180deg);
@@ -546,11 +570,15 @@ onUnmounted(() => {
   padding: 24px;
   overflow-y: auto;
   overflow-x: hidden;
+  min-height: calc(100vh - 140px);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
+
 
 @media (max-width: 768px) {
   .main-content {
     padding: 16px;
+    min-height: calc(100vh - 120px);
   }
 }
 

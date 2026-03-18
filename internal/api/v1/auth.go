@@ -14,10 +14,10 @@ import (
 
 // AuthHandler 认证处理器
 type AuthHandler struct {
-	storage     storage.Storage
-	authCfg     config.AuthConfig
-	rateLimit   *middleware.LoginRateLimiter
-	blacklist   storage.BlacklistStorage
+	storage   storage.Storage
+	authCfg   config.AuthConfig
+	rateLimit *middleware.LoginRateLimiter
+	blacklist storage.BlacklistStorage
 }
 
 // NewAuthHandler 创建认证处理器
@@ -125,10 +125,10 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		tempToken, _ := h.generateToken(user, 15*time.Minute)
 		user.Password = ""
 		c.JSON(http.StatusOK, gin.H{
-			"token": tempToken,
-			"user":  user,
+			"token":                   tempToken,
+			"user":                    user,
 			"require_password_change": true,
-			"message": "首次登录请修改密码",
+			"message":                 "首次登录请修改密码",
 		})
 		return
 	}
@@ -142,6 +142,16 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	// 更新用户登录信息
 	user.RecordLoginSuccess()
 	h.storage.UpdateUser(c.Request.Context(), user)
+
+	// 记录登录活动日志
+	activityLog := &storage.ActivityLog{
+		Type:     storage.ActivityAdd,
+		Action:   "用户登录",
+		Target:   fmt.Sprintf("%s (%s)", user.Username, user.Nickname),
+		UserID:   user.ID,
+		Metadata: fmt.Sprintf(`{"username":"%s","nickname":"%s","role":"%s"}`, user.Username, user.Nickname, user.Role),
+	}
+	h.storage.SaveActivityLog(c.Request.Context(), activityLog)
 
 	// 生成 JWT Token
 	token, err := h.generateToken(user, 0) // 0 表示使用默认配置
@@ -223,6 +233,10 @@ func (h *AuthHandler) generateToken(user *storage.User, customExpire time.Durati
 // @Success 200 {object} map[string]string
 // @Router /api/v1/auth/logout [post]
 func (h *AuthHandler) Logout(c *gin.Context) {
+	// 获取当前用户
+	userID, _ := c.Get("user_id")
+	username, _ := c.Get("username")
+
 	// 将 Token 加入黑名单
 	if h.blacklist != nil && h.authCfg.EnableBlacklist {
 		token, exists := middleware.GetToken(c)
@@ -239,6 +253,18 @@ func (h *AuthHandler) Logout(c *gin.Context) {
 			// 添加到黑名单
 			h.blacklist.AddToken(c.Request.Context(), token, expiresAt)
 		}
+	}
+
+	// 记录登出活动日志
+	if userIDStr, ok := userID.(string); ok {
+		activityLog := &storage.ActivityLog{
+			Type:     storage.ActivityCheck,
+			Action:   "用户登出",
+			Target:   username.(string),
+			UserID:   userIDStr,
+			Metadata: fmt.Sprintf(`{"username":"%s"}`, username),
+		}
+		h.storage.SaveActivityLog(c.Request.Context(), activityLog)
 	}
 
 	c.JSON(http.StatusOK, gin.H{

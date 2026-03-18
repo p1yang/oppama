@@ -282,6 +282,14 @@ func (h *ProxyHandler) UpdateConfig(c *gin.Context) {
 						}
 					}
 				}
+
+				// 同时更新配置文件中的检测器配置，以便重启后保持设置
+				if detector.HealthCheckInterval != nil && *detector.HealthCheckInterval > 0 {
+					h.config.Detector.CheckInterval = healthCheck * 60 // 转换为秒
+				}
+				if detector.ModelSyncInterval != nil && *detector.ModelSyncInterval > 0 {
+					h.config.Detector.ModelSyncInterval = modelSync * 60 // 转换为秒
+				}
 			}
 		}
 	}

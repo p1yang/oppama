@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"time"
 
 	"oppama/internal/proxy"
 	"oppama/internal/storage"
@@ -50,16 +51,39 @@ func (h *OpenAIHandler) ChatCompletions(c *gin.Context) {
 	c.JSON(http.StatusOK, resp)
 }
 
-// handleStreamChatCompletions 处理流式 Chat Completions 请求
+// handleStreamChatCompletions 处理流式 Chat Completions 请求（优化版）
 func (h *OpenAIHandler) handleStreamChatCompletions(c *gin.Context, req *proxy.ChatCompletionRequest) {
-	// 设置 SSE 响应头
+	// 设置 SSE 响应头 - 优化配置
 	c.Header("Content-Type", "text/event-stream")
 	c.Header("Cache-Control", "no-cache")
 	c.Header("Connection", "keep-alive")
 	c.Header("Transfer-Encoding", "chunked")
-	c.Header("X-Accel-Buffering", "no") // 禁用 Nginx 缓冲
+	c.Header("X-Accel-Buffering", "no")           // 禁用 Nginx 缓冲
+	c.Header("X-Content-Type-Options", "nosniff") // 防止 MIME 类型嗅探
 
 	ctx := c.Request.Context()
+	chunkCount := 0
+
+	// 启动心跳包 goroutine，防止连接超时
+	heartbeatTicker := time.NewTicker(15 * time.Second)
+	defer heartbeatTicker.Stop()
+
+	done := make(chan struct{})
+	defer close(done)
+
+	// 心跳包发送协程
+	go func() {
+		for {
+			select {
+			case <-done:
+				return
+			case <-heartbeatTicker.C:
+				// 发送 SSE 注释行作为心跳（不会触发客户端事件）
+				c.Writer.WriteString(": heartbeat\n\n")
+				c.Writer.Flush()
+			}
+		}
+	}()
 
 	// 直接调用代理的流式方法
 	err := h.proxy.StreamChatCompletions(ctx, req, func(chunk *proxy.ChatCompletionResponse) error {
@@ -71,7 +95,8 @@ func (h *OpenAIHandler) handleStreamChatCompletions(c *gin.Context, req *proxy.C
 		if err != nil {
 			return err
 		}
-		c.Writer.Flush()
+		c.Writer.Flush() // 强制刷新缓冲区
+		chunkCount++
 		return nil
 	})
 
@@ -84,6 +109,7 @@ func (h *OpenAIHandler) handleStreamChatCompletions(c *gin.Context, req *proxy.C
 	// 发送结束标记
 	c.Writer.WriteString("data: [DONE]\n\n")
 	c.Writer.Flush()
+	log.Printf("[OpenAI] 流式传输完成，共发送 %d 个 chunk", chunkCount)
 }
 
 // ListModels 列出可用模型

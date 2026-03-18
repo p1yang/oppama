@@ -151,13 +151,13 @@ type Stats struct {
 
 // ServiceFilter 服务查询过滤条件
 type ServiceFilter struct {
-	Status     *ServiceStatus `form:"status"`
+	Status     *ServiceStatus   `form:"status"`
 	Source     *DiscoverySource `form:"source"`
-	HasModels  *bool          `form:"has_models"`
-	IsHoneypot *bool          `form:"is_honeypot"`
-	Search     string         `form:"search"`
-	Page       int            `form:"page"`
-	PageSize   int            `form:"limit"` // 前端发送的是 limit
+	HasModels  *bool            `form:"has_models"`
+	IsHoneypot *bool            `form:"is_honeypot"`
+	Search     string           `form:"search"`
+	Page       int              `form:"page"`
+	PageSize   int              `form:"limit"` // 前端发送的是 limit
 }
 
 // ModelFilter 模型查询过滤条件
@@ -188,4 +188,27 @@ type TaskFilter struct {
 	Type   string
 	Status TaskStatus
 	Limit  int
+}
+
+// ActivityType 活动类型
+type ActivityType string
+
+const (
+	ActivityAdd     ActivityType = "add"
+	ActivityCheck   ActivityType = "check"
+	ActivityDelete  ActivityType = "delete"
+	ActivityUpdate  ActivityType = "update"
+	ActivityWarning ActivityType = "warning"
+	ActivityError   ActivityType = "error"
+)
+
+// ActivityLog 活动日志
+type ActivityLog struct {
+	ID        int64        `json:"id"`
+	Type      ActivityType `json:"type"`
+	Action    string       `json:"action"`     // 操作描述
+	Target    string       `json:"target"`     // 操作目标（如服务 URL）
+	UserID    string       `json:"user_id"`    // 操作用户 ID（可选）
+	Metadata  string       `json:"metadata"`   // 额外信息（JSON 格式）
+	CreatedAt time.Time    `json:"created_at"` // 创建时间
 }

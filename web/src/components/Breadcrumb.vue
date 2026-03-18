@@ -25,5 +25,12 @@ const breadcrumbs = computed(() => {
 <style scoped>
 .el-breadcrumb {
   font-size: 14px;
+  display: flex;
+  align-items: center;
+}
+
+.el-breadcrumb :deep(.el-breadcrumb__item) {
+  display: flex;
+  align-items: center;
 }
 </style>

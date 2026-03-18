@@ -669,6 +669,7 @@ onUnmounted(() => {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
   gap: 12px;
+  margin-bottom: 8px;
 }
 
 .engine-option {
@@ -682,6 +683,7 @@ onUnmounted(() => {
   border-radius: 12px;
   cursor: pointer;
   transition: all 0.3s ease;
+  min-height: 80px;
 }
 
 .engine-option:hover {
@@ -771,6 +773,7 @@ onUnmounted(() => {
 /* 任务卡片 */
 .task-card {
   min-height: 400px;
+  margin-bottom: 0;
 }
 
 .task-info {
@@ -838,6 +841,7 @@ onUnmounted(() => {
 /* 历史记录卡片 */
 .history-card {
   margin-top: 20px;
+  margin-bottom: 0;
 }
 
 .history-list {
@@ -881,6 +885,7 @@ onUnmounted(() => {
 /* 结果卡片 */
 .result-card {
   margin-bottom: 0;
+  margin-top: 20px;
 }
 
 .url-cell {
@@ -906,6 +911,13 @@ onUnmounted(() => {
 
   .action-buttons .el-button {
     width: 100%;
+  }
+  
+  .search-card,
+  .task-card,
+  .history-card,
+  .result-card {
+    margin-bottom: 16px;
   }
 }
 </style>

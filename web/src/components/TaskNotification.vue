@@ -247,30 +247,6 @@ const getTaskStatusText = (status: string): string => {
   transform: translateY(20px);
 }
 
-/* 深色模式 */
-:deep(.dark) .task-panel {
-  background: #1e293b;
-}
-
-:deep(.dark) .panel-header,
-:deep(.dark) .panel-footer {
-  border-color: #334155;
-}
-
-:deep(.dark) .task-item {
-  background: #334155;
-}
-
-:deep(.dark) .panel-title,
-:deep(.dark) .task-title {
-  color: #f1f5f9;
-}
-
-:deep(.dark) .task-status,
-:deep(.dark) .progress-text {
-  color: #94a3b8;
-}
-
 /* 响应式 */
 @media (max-width: 768px) {
   .task-notification {

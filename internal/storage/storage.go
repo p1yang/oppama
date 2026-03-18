@@ -24,6 +24,11 @@ type Storage interface {
 	GetTask(ctx context.Context, id string) (*DiscoveryTask, error)
 	UpdateTask(ctx context.Context, task *DiscoveryTask) error
 
+	// 活动日志
+	SaveActivityLog(ctx context.Context, log *ActivityLog) error
+	ListRecentActivities(ctx context.Context, limit int) ([]*ActivityLog, error)
+	ListActivitiesByService(ctx context.Context, serviceID string, limit int) ([]*ActivityLog, error)
+
 	// 统计查询
 	GetStats(ctx context.Context) (*Stats, error)
 

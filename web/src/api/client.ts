@@ -61,4 +61,78 @@ apiClient.interceptors.response.use(
   }
 )
 
+// ============ API 方法封装 ============
+
+export const api = {
+  // ============ 认证 ============
+  login(credentials: { username: string; password: string }) {
+    return apiClient.post('/auth/login', credentials)
+  },
+  
+  logout() {
+    return apiClient.post('/auth/logout')
+  },
+  
+  // ============ 服务管理 ============
+  getServices(params?: any) {
+    return apiClient.get('/services', { params })
+  },
+  
+  // ============ 模型管理 ============
+  getModels(params?: any) {
+    return apiClient.get('/models', { params })
+  },
+  
+  getRecommendedModels(serviceId?: string) {
+    return apiClient.get('/models/recommend', { params: { service_id: serviceId } })
+  },
+  
+  // ============ 服务发现 ============
+  searchServices(query: string, page: number = 1, pageSize: number = 20) {
+    return apiClient.post('/discovery/search', { query, page, page_size: pageSize })
+  },
+  
+  importURLs(file: File) {
+    const formData = new FormData()
+    formData.append('file', file)
+    return apiClient.post('/discovery/import', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+  },
+  
+  getDiscoveryTask(taskId: string) {
+    return apiClient.get(`/discovery/tasks/${taskId}`)
+  },
+  
+  // ============ 任务管理 ============
+  getTasks(params?: any) {
+    return apiClient.get('/tasks', { params })
+  },
+  
+  getTask(id: string) {
+    return apiClient.get(`/tasks/${id}`)
+  },
+  
+  // ============ 用户管理 ============
+  getUsers(params?: any) {
+    return apiClient.get('/users', { params })
+  },
+  
+  getUser(id: string) {
+    return apiClient.get(`/users/${id}`)
+  },
+  
+  createUser(data: any) {
+    return apiClient.post('/users', data)
+  },
+  
+  updateUser(id: string, data: any) {
+    return apiClient.put(`/users/${id}`, data)
+  },
+  
+  deleteUser(id: string) {
+    return apiClient.delete(`/users/${id}`)
+  },
+}
+
 export default apiClient

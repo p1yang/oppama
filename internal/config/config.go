@@ -57,7 +57,8 @@ type RateLimitConfig struct {
 type DetectorConfig struct {
 	Concurrency       int            `yaml:"concurrency"`
 	Timeout           int            `yaml:"timeout"`
-	CheckInterval     int            `yaml:"check_interval"`
+	CheckInterval     int            `yaml:"check_interval"`      // 健康检查间隔（秒）
+	ModelSyncInterval int            `yaml:"model_sync_interval"` // 模型同步间隔（秒）
 	HoneypotDetection HoneypotConfig `yaml:"honeypot_detection"`
 }
 
@@ -137,24 +138,24 @@ type PostgresConfig struct {
 
 // LogConfig 日志配置
 type LogConfig struct {
-	Level      string `yaml:"level"`   // debug, info, warn, error
-	Format     string `yaml:"format"`  // json, text
+	Level      string `yaml:"level"`  // debug, info, warn, error
+	Format     string `yaml:"format"` // json, text
 	Output     string `yaml:"output"`
-	MaxSize    int    `yaml:"max_size"`    // MB
+	MaxSize    int    `yaml:"max_size"` // MB
 	MaxBackups int    `yaml:"max_backups"`
-	MaxAge     int    `yaml:"max_age"`     // days
+	MaxAge     int    `yaml:"max_age"` // days
 }
 
 // AuthConfig 认证配置
 type AuthConfig struct {
-	Enabled         bool             `yaml:"enabled"`
-	JWTSecret       string           `yaml:"jwt_secret"`
-	JWTExpire       string           `yaml:"jwt_expire"`
-	EnableBlacklist bool             `yaml:"enable_blacklist"`
-	BlacklistTTL    string           `yaml:"blacklist_ttl"`
-	PasswordPolicy  PasswordPolicy   `yaml:"password_policy"`
-	LoginRateLimit  LoginRateLimit   `yaml:"login_rate_limit"`
-	SessionTimeout  string           `yaml:"session_timeout"`
+	Enabled         bool           `yaml:"enabled"`
+	JWTSecret       string         `yaml:"jwt_secret"`
+	JWTExpire       string         `yaml:"jwt_expire"`
+	EnableBlacklist bool           `yaml:"enable_blacklist"`
+	BlacklistTTL    string         `yaml:"blacklist_ttl"`
+	PasswordPolicy  PasswordPolicy `yaml:"password_policy"`
+	LoginRateLimit  LoginRateLimit `yaml:"login_rate_limit"`
+	SessionTimeout  string         `yaml:"session_timeout"`
 }
 
 // PasswordPolicy 密码策略配置
@@ -175,10 +176,10 @@ type LoginRateLimit struct {
 
 // CORSConfig 跨域配置
 type CORSConfig struct {
-	AllowedOrigins  []string `yaml:"allowed_origins"`
-	AllowedMethods  []string `yaml:"allowed_methods"`
-	AllowedHeaders  []string `yaml:"allowed_headers"`
-	AllowCredentials bool    `yaml:"allow_credentials"`
+	AllowedOrigins   []string `yaml:"allowed_origins"`
+	AllowedMethods   []string `yaml:"allowed_methods"`
+	AllowedHeaders   []string `yaml:"allowed_headers"`
+	AllowCredentials bool     `yaml:"allow_credentials"`
 	MaxAge           int      `yaml:"max_age"`
 }
 
@@ -272,7 +273,10 @@ func setDefaults(cfg *Config) {
 		cfg.Detector.Timeout = 30
 	}
 	if cfg.Detector.CheckInterval == 0 {
-		cfg.Detector.CheckInterval = 300
+		cfg.Detector.CheckInterval = 300 // 5 分钟
+	}
+	if cfg.Detector.ModelSyncInterval == 0 {
+		cfg.Detector.ModelSyncInterval = 600 // 10 分钟
 	}
 	if cfg.Detector.HoneypotDetection.Threshold == 0 {
 		cfg.Detector.HoneypotDetection.Threshold = 60

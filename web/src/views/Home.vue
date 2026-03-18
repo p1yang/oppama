@@ -189,8 +189,12 @@
             </button>
           </div>
         </el-card>
+      </el-col>
+    </el-row>
 
-        <!-- 最近活动 -->
+    <!-- 最近活动 -->
+    <el-row :gutter="20" class="content-row">
+      <el-col :span="24">
         <el-card class="content-card activity-card" shadow="never">
           <template #header>
             <div class="card-header">
@@ -236,9 +240,11 @@
           <el-descriptions :column="4" border>
             <el-descriptions-item label="系统版本">v1.0.0</el-descriptions-item>
             <el-descriptions-item label="运行时间">{{ uptime }}</el-descriptions-item>
-            <el-descriptions-item label="监听地址">0.0.0.0:11435</el-descriptions-item>
+            <el-descriptions-item label="服务总数">{{ stats.totalServices }}</el-descriptions-item>
             <el-descriptions-item label="认证状态">
-              <el-tag type="success" effect="plain">已启用</el-tag>
+              <el-tag :type="authEnabled ? 'success' : 'info'" effect="plain">
+                {{ authEnabled ? '已启用' : '未启用' }}
+              </el-tag>
             </el-descriptions-item>
           </el-descriptions>
         </el-card>
@@ -253,6 +259,9 @@ import api from '@/api/client'
 
 const statusView = ref<'list' | 'grid'>('list')
 
+// 系统配置信息
+const authEnabled = ref(true)
+
 const stats = reactive({
   totalServices: 0,
   onlineServices: 0,
@@ -263,12 +272,7 @@ const stats = reactive({
 })
 
 const recentServices = ref<any[]>([])
-const recentActivities = ref<any[]>([
-  { id: 1, type: 'add', text: '添加新服务 localhost:11434', time: new Date(Date.now() - 300000) },
-  { id: 2, type: 'check', text: '完成服务健康检查', time: new Date(Date.now() - 600000) },
-  { id: 3, type: 'delete', text: '删除离线服务 192.168.1.100', time: new Date(Date.now() - 1800000) },
-  { id: 4, type: 'warning', text: '检测到蜜罐服务', time: new Date(Date.now() - 3600000) },
-])
+const recentActivities = ref<any[]>([])
 
 let uptimeTimer: any = null
 const uptimeSeconds = ref(0)
@@ -295,6 +299,32 @@ const uptime = computed(() => {
   if (hours > 0) return `${hours}小时 ${minutes}分钟`
   return `${minutes}分钟`
 })
+
+const loadSystemConfig = async () => {
+  try {
+    const res = await api.get('/proxy/config')
+    const config = res.data.data || {}
+    // 获取认证状态
+    authEnabled.value = config.enable_auth ?? true
+  } catch (error) {
+    console.error('加载系统配置失败:', error)
+  }
+}
+
+const loadActivities = async () => {
+  try {
+    const res = await api.get('/services/activities', { params: { limit: 20 } })
+    const activities = res.data.data || []
+    recentActivities.value = activities.map((item: any) => ({
+      id: item.id,
+      type: item.type,
+      text: item.action + (item.target ? ` - ${item.target}` : ''),
+      time: new Date(item.created_at),
+    }))
+  } catch (error) {
+    console.error('加载活动记录失败:', error)
+  }
+}
 
 const loadStats = async () => {
   try {
@@ -372,8 +402,10 @@ const formatTime = (date: Date) => {
 }
 
 onMounted(() => {
+  loadSystemConfig()
   loadStats()
   loadModels()
+  loadActivities()
   uptimeSeconds.value = 7200 // 模拟运行时间
   uptimeTimer = setInterval(() => {
     uptimeSeconds.value++
@@ -398,7 +430,10 @@ onUnmounted(() => {
   margin-bottom: 24px;
   border-radius: 16px;
   overflow: hidden;
+  box-shadow: 0 8px 24px rgba(102, 126, 234, 0.4);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
+
 
 .welcome-card :deep(.el-card__body) {
   padding: 32px;
@@ -422,11 +457,15 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 12px;
+  text-shadow: 0 2px 12px rgba(0, 0, 0, 0.2);
 }
+
 
 .greeting {
   color: #fff;
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
 }
+
 
 .wave {
   animation: wave 2s infinite;
@@ -443,7 +482,9 @@ onUnmounted(() => {
   font-size: 16px;
   color: rgba(255, 255, 255, 0.85);
   margin: 0;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
 }
+
 
 .welcome-stats {
   display: flex;
@@ -460,12 +501,18 @@ onUnmounted(() => {
   font-weight: 700;
   line-height: 1;
   margin-bottom: 4px;
+  color: #fff;
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
 }
+
 
 .stat-text {
   font-size: 13px;
   color: rgba(255, 255, 255, 0.7);
+  font-weight: 500;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
 }
+
 
 /* 统计行 */
 .stats-row {
@@ -473,17 +520,43 @@ onUnmounted(() => {
 }
 
 .stat-card {
-  background: #fff;
+  background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
   border-radius: 16px;
   padding: 24px;
   display: flex;
   align-items: center;
   gap: 20px;
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
-  transition: all 0.3s ease;
+  box-shadow: var(--shadow-md);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   cursor: pointer;
   height: 100%;
+  min-height: 100px;
+  position: relative;
+  overflow: hidden;
 }
+
+.stat-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, transparent, rgba(79, 70, 229, 0.2), transparent);
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.stat-card:hover::before {
+  opacity: 1;
+}
+
+.stat-card:hover {
+  transform: translateY(-4px);
+  box-shadow: var(--shadow-lg);
+}
+
+
 
 .stat-card:hover {
   transform: translateY(-4px);
@@ -491,20 +564,28 @@ onUnmounted(() => {
 }
 
 .stat-card.primary .stat-icon {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: linear-gradient(135deg, #4f46e5 0%, #818cf8 100%);
+  box-shadow: 0 4px 12px rgba(79, 70, 229, 0.3);
 }
 
 .stat-card.success .stat-icon {
-  background: linear-gradient(135deg, #4ade80 0%, #22c55e 100%);
+  background: linear-gradient(135deg, #10b981 0%, #34d399 100%);
+  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
 }
 
 .stat-card.warning .stat-icon {
-  background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%);
+  background: linear-gradient(135deg, #f59e0b 0%, #fbbf24 100%);
+  box-shadow: 0 4px 12px rgba(245, 158, 11, 0.3);
 }
 
 .stat-card.danger .stat-icon {
-  background: linear-gradient(135deg, #f87171 0%, #dc2626 100%);
+  background: linear-gradient(135deg, #ef4444 0%, #f87171 100%);
+  box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);
 }
+
+
+
+
 
 .stat-icon {
   width: 64px;
@@ -516,7 +597,13 @@ onUnmounted(() => {
   color: #fff;
   flex-shrink: 0;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
+
+.stat-card:hover .stat-icon {
+  transform: scale(1.1) rotate(5deg);
+}
+
 
 .stat-content {
   flex: 1;
@@ -525,17 +612,21 @@ onUnmounted(() => {
 .stat-value {
   font-size: 28px;
   font-weight: 700;
-  color: #1e293b;
+  color: #0f172a;
   line-height: 1;
   margin-bottom: 4px;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.05);
 }
+
 
 .stat-label {
   font-size: 13px;
   color: #64748b;
-  font-weight: 500;
+  font-weight: 600;
   margin-bottom: 4px;
+  letter-spacing: 0.3px;
 }
+
 
 .stat-trend {
   display: flex;
@@ -543,11 +634,15 @@ onUnmounted(() => {
   gap: 4px;
   font-size: 12px;
   color: #64748b;
+  font-weight: 600;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .stat-trend.up {
   color: #10b981;
 }
+
+
 
 /* 内容行 */
 .content-row {
@@ -557,13 +652,26 @@ onUnmounted(() => {
 .content-card {
   border-radius: 12px;
   height: 100%;
+  margin-bottom: 0;
+}
+
+/* 快捷操作卡片特殊处理 */
+.quick-actions-card {
   margin-bottom: 20px;
+}
+
+/* 活动卡片和系统信息卡片统一宽度 */
+.activity-card,
+.system-info-card {
+  width: 100%;
 }
 
 .content-card :deep(.el-card__header) {
   padding: 16px 20px;
   border-bottom: 1px solid #f1f5f9;
+  background: linear-gradient(135deg, rgba(79, 70, 229, 0.03) 0%, rgba(124, 58, 237, 0.03) 100%);
 }
+
 
 .content-card :deep(.el-card__body) {
   padding: 20px;
@@ -581,8 +689,10 @@ onUnmounted(() => {
   gap: 10px;
   font-size: 16px;
   font-weight: 600;
-  color: #1e293b;
+  color: #0f172a;
+  letter-spacing: 0.3px;
 }
+
 
 /* 服务列表 */
 .service-list {
@@ -596,16 +706,21 @@ onUnmounted(() => {
   justify-content: space-between;
   align-items: center;
   padding: 16px;
-  background: #f8fafc;
+  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
   border-radius: 12px;
-  transition: all 0.3s ease;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   cursor: pointer;
+  border: 1px solid transparent;
 }
 
 .service-item:hover {
-  background: #f1f5f9;
-  transform: translateX(4px);
+  background: linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%);
+  transform: translateX(6px);
+  border-color: var(--border-color);
+  box-shadow: var(--shadow-sm);
 }
+
+
 
 .service-info {
   display: flex;
@@ -643,14 +758,18 @@ onUnmounted(() => {
 
 .service-name {
   font-weight: 600;
-  color: #1e293b;
+  color: #0f172a;
   margin-bottom: 4px;
+  letter-spacing: 0.3px;
 }
+
 
 .service-url {
   font-size: 12px;
   color: #94a3b8;
+  transition: color 0.3s ease;
 }
+
 
 .service-meta {
   display: flex;
@@ -661,7 +780,10 @@ onUnmounted(() => {
 .response-time {
   font-size: 12px;
   color: #64748b;
+  font-weight: 500;
+  transition: color 0.3s ease;
 }
+
 
 /* 服务网格 */
 .service-grid {
@@ -671,18 +793,21 @@ onUnmounted(() => {
 }
 
 .service-card-mini {
-  background: #fff;
+  background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
   border: 1px solid #e2e8f0;
   border-radius: 12px;
   overflow: hidden;
-  transition: all 0.3s ease;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   cursor: pointer;
+  box-shadow: var(--shadow-sm);
 }
 
 .service-card-mini:hover {
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
+  box-shadow: var(--shadow-lg);
   transform: translateY(-4px);
 }
+
+
 
 .service-card-header {
   height: 60px;
@@ -715,18 +840,22 @@ onUnmounted(() => {
 
 .service-card-name {
   font-weight: 600;
-  color: #1e293b;
+  color: #0f172a;
   margin-bottom: 4px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  letter-spacing: 0.3px;
 }
+
 
 .service-card-url {
   font-size: 12px;
   color: #94a3b8;
   margin-bottom: 12px;
+  transition: color 0.3s ease;
 }
+
 
 /* 快捷操作 */
 .quick-actions {
@@ -741,22 +870,24 @@ onUnmounted(() => {
   align-items: center;
   gap: 12px;
   padding: 20px 16px;
-  background: #f8fafc;
+  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
   border: 2px solid transparent;
   border-radius: 12px;
   cursor: pointer;
-  transition: all 0.3s ease;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   font-size: 13px;
-  font-weight: 500;
+  font-weight: 600;
   color: #475569;
 }
 
 .action-btn:hover {
-  background: #fff;
+  background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
   border-color: #4f46e5;
   transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(79, 70, 229, 0.15);
+  box-shadow: 0 4px 16px rgba(79, 70, 229, 0.2);
 }
+
+
 
 .action-icon {
   width: 48px;
@@ -798,9 +929,16 @@ onUnmounted(() => {
   align-items: flex-start;
   gap: 12px;
   padding: 12px;
-  background: #f8fafc;
+  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
   border-radius: 8px;
+  transition: all 0.3s ease;
 }
+
+.activity-item:hover {
+  background: linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%);
+}
+
+
 
 .activity-icon {
   width: 32px;
@@ -835,9 +973,11 @@ onUnmounted(() => {
 
 .activity-text {
   font-size: 13px;
-  color: #334155;
+  color: var(--text-secondary);
   margin-bottom: 4px;
+  transition: color 0.3s ease;
 }
+
 
 .activity-time {
   font-size: 11px;
@@ -867,6 +1007,7 @@ onUnmounted(() => {
 
   .stat-card {
     padding: 16px;
+    min-height: auto;
   }
 
   .stat-icon {
@@ -879,11 +1020,17 @@ onUnmounted(() => {
   }
 
   .service-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 12px;
   }
 
   .quick-actions {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+  }
+  
+  .action-btn {
+    padding: 16px 12px;
   }
 }
 </style>

@@ -3,7 +3,6 @@ package main
 import (
 	"flag"
 	"fmt"
-	"log"
 	"os"
 	"os/signal"
 	"syscall"
@@ -14,6 +13,7 @@ import (
 	"oppama/internal/detector"
 	"oppama/internal/scheduler"
 	"oppama/internal/storage"
+	"oppama/internal/utils/logger"
 )
 
 var version = "0.1.0"
@@ -32,12 +32,12 @@ func main() {
 	// 加载配置
 	cfg, err := config.Load(*configPath)
 	if err != nil {
-		log.Fatalf("加载配置失败：%v", err)
+		logger.Server().Fatalf("加载配置失败：%v", err)
 	}
 
 	// 验证配置
 	if err := cfg.Validate(); err != nil {
-		log.Fatalf("配置验证失败：%v", err)
+		logger.Server().Fatalf("配置验证失败：%v", err)
 	}
 
 	// 初始化存储
@@ -46,32 +46,32 @@ func main() {
 	case "sqlite":
 		store, err = storage.NewSQLiteStorage(cfg.Storage.SQLite.Path)
 		if err != nil {
-			log.Fatalf("初始化 SQLite 存储失败：%v", err)
+			logger.Storage().Fatalf("初始化 SQLite 存储失败：%v", err)
 		}
 	case "memory":
 		// TODO: 实现内存存储
-		log.Fatal("内存存储暂未实现，请使用 SQLite")
+		logger.Server().Fatal("内存存储暂未实现，请使用 SQLite")
 	default:
-		log.Fatalf("不支持的存储类型：%s", cfg.Storage.Type)
+		logger.Server().Fatalf("不支持的存储类型：%s", cfg.Storage.Type)
 	}
 
 	defer store.Close()
 
 	// 检查数据库连接
 	if err := store.Ping(nil); err != nil {
-		log.Fatalf("数据库连接失败：%v", err)
+		logger.Storage().Fatalf("数据库连接失败：%v", err)
 	}
 
-	log.Println("存储初始化成功")
+	logger.Storage().Info("存储初始化成功")
 
 	// 创建 API 服务器
 	server := api.NewServer(cfg, store, *configPath)
 
 	// 立即刷新一次 Proxy 缓存（加载所有有模型的服务）
 	if proxySvc := server.GetProxyService(); proxySvc != nil {
-		log.Println("初始化 Proxy 服务缓存...")
+		logger.Proxy().Info("初始化 Proxy 服务缓存...")
 		if err := proxySvc.RefreshServices(); err != nil {
-			log.Printf("警告：刷新 Proxy 缓存失败：%v", err)
+			logger.Proxy().Warnf("警告：刷新 Proxy 缓存失败：%v", err)
 		}
 	}
 
@@ -100,8 +100,8 @@ func main() {
 		FakeVersions:    fakeVersions,
 	}
 
-	// 创建并启动定时任务调度器
-	sched := scheduler.NewScheduler(nil, store, detectorCfg)
+	// 创建并启动定时任务调度器，传入配置对象以读取间隔设置
+	sched := scheduler.NewScheduler(nil, store, detectorCfg, &cfg.Detector)
 	sched.Start()
 	defer sched.Stop()
 
@@ -113,17 +113,17 @@ func main() {
 		sigChan := make(chan os.Signal, 1)
 		signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 		<-sigChan
-		log.Println("正在关闭服务...")
+		logger.Server().Info("正在关闭服务...")
 		os.Exit(0)
 	}()
 
 	// 启动服务器
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
-	log.Printf("启动 API 服务器：%s", addr)
-	log.Printf("管理界面：http://%s:%d/admin", cfg.Server.Host, cfg.Server.Port)
-	log.Printf("API 文档：http://%s:%d/v1/api", cfg.Server.Host, cfg.Server.Port)
+	logger.Server().Info("启动 API 服务器：%s", addr)
+	logger.Server().Info("管理界面：http://%s:%d/admin", cfg.Server.Host, cfg.Server.Port)
+	logger.Server().Info("API 文档：http://%s:%d/v1/api", cfg.Server.Host, cfg.Server.Port)
 
 	if err := server.Run(); err != nil {
-		log.Fatalf("服务器启动失败：%v", err)
+		logger.Server().Fatalf("服务器启动失败：%v", err)
 	}
 }

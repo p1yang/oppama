@@ -168,6 +168,16 @@ func (h *ServiceHandler) CreateService(c *gin.Context) {
 		return
 	}
 
+	// 记录活动日志
+	activityLog := &storage.ActivityLog{
+		Type:     storage.ActivityAdd,
+		Action:   "添加服务",
+		Target:   service.URL,
+		UserID:   c.GetString("user_id"),
+		Metadata: fmt.Sprintf(`{"service_id":"%s","service_name":"%s"}`, service.ID, service.Name),
+	}
+	h.storage.SaveActivityLog(c.Request.Context(), activityLog)
+
 	c.JSON(http.StatusCreated, gin.H{"data": service})
 }
 
@@ -214,10 +224,27 @@ func (h *ServiceHandler) UpdateService(c *gin.Context) {
 func (h *ServiceHandler) DeleteService(c *gin.Context) {
 	id := c.Param("id")
 
+	// 获取要删除的服务信息（用于记录日志）
+	service, err := h.storage.GetService(c.Request.Context(), id)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
 	if err := h.storage.DeleteService(c.Request.Context(), id); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+
+	// 记录活动日志
+	activityLog := &storage.ActivityLog{
+		Type:     storage.ActivityDelete,
+		Action:   "删除服务",
+		Target:   service.URL,
+		UserID:   c.GetString("user_id"), // 从上下文中获取用户 ID
+		Metadata: fmt.Sprintf(`{"service_id":"%s","service_name":"%s"}`, id, service.Name),
+	}
+	h.storage.SaveActivityLog(c.Request.Context(), activityLog)
 
 	c.JSON(http.StatusOK, gin.H{"message": "删除成功"})
 }
@@ -337,6 +364,29 @@ func (h *ServiceHandler) CheckService(c *gin.Context) {
 		}
 	}
 
+	// 记录活动日志
+	var activityType storage.ActivityType
+	var action string
+	if result.IsHoneypot {
+		activityType = storage.ActivityWarning
+		action = "检测到蜜罐服务"
+	} else if result.IsValid {
+		activityType = storage.ActivityCheck
+		action = "完成服务健康检查"
+	} else {
+		activityType = storage.ActivityError
+		action = "服务检查失败"
+	}
+
+	activityLog := &storage.ActivityLog{
+		Type:     activityType,
+		Action:   action,
+		Target:   service.URL,
+		UserID:   c.GetString("user_id"),
+		Metadata: fmt.Sprintf(`{"service_id":"%s","status":"%s","is_honeypot":%v}`, service.ID, service.Status, result.IsHoneypot),
+	}
+	h.storage.SaveActivityLog(c.Request.Context(), activityLog)
+
 	c.JSON(http.StatusOK, gin.H{"data": result})
 }
 
@@ -375,7 +425,7 @@ func (h *ServiceHandler) BatchCheck(c *gin.Context) {
 		foundCount := 0
 
 		// 批量保存的缓冲区
-		const batchSize = 50  // 从20增加到50，减少刷新频率
+		const batchSize = 50 // 从20增加到50，减少刷新频率
 		serviceBuffer := make([]*storage.OllamaService, 0, batchSize)
 		modelBuffer := make(map[string][]storage.ModelInfo)
 		bufferMu := sync.Mutex{}
@@ -787,5 +837,38 @@ func (h *ServiceHandler) GetStats(c *gin.Context) {
 			"honeypot":        stats.HoneypotServices,
 			"detector_status": detectorStatus,
 		},
+	})
+}
+
+// GetRecentActivities 获取最近活动
+func (h *ServiceHandler) GetRecentActivities(c *gin.Context) {
+	limit := 20 // 默认返回最近 20 条
+	if l := c.Query("limit"); l != "" {
+		fmt.Sscanf(l, "%d", &limit)
+		if limit > 100 {
+			limit = 100 // 最多 100 条
+		}
+	}
+
+	// 支持按服务 ID 筛选
+	serviceID := c.Query("service_id")
+
+	var activities []*storage.ActivityLog
+	var err error
+
+	if serviceID != "" {
+		activities, err = h.storage.ListActivitiesByService(c.Request.Context(), serviceID, limit)
+	} else {
+		activities, err = h.storage.ListRecentActivities(c.Request.Context(), limit)
+	}
+
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"data":  activities,
+		"total": len(activities),
 	})
 }

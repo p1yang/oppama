@@ -6,10 +6,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"strings"
 	"time"
+
+	"oppama/internal/utils/logger"
 )
 
 // Client Hunter API 客户端
@@ -107,8 +108,8 @@ func (c *Client) Search(ctx context.Context, query string, limit int) ([]string,
 			pageSize,
 		)
 
-		log.Printf("[Hunter] 请求 URL: %s", reqURL)
-		log.Printf("[Hunter] 查询语句: %s", searchQuery)
+		logger.Hunter().Printf("请求 URL: %s", reqURL)
+		logger.Hunter().Printf("查询语句：%s", searchQuery)
 
 		resp, err := c.httpClient.Get(reqURL)
 		if err != nil {
@@ -122,7 +123,7 @@ func (c *Client) Search(ctx context.Context, query string, limit int) ([]string,
 		}
 
 		// 打印原始响应用于调试
-		log.Printf("[Hunter] 原始响应 (page %d): %s", page, string(body))
+		logger.Hunter().Printf("原始响应 (page %d): %s", page, string(body))
 
 		var hunterResp Response
 		if err := json.Unmarshal(body, &hunterResp); err != nil {
@@ -135,12 +136,12 @@ func (c *Client) Search(ctx context.Context, query string, limit int) ([]string,
 
 		// 处理 arr 为 null 的情况
 		if hunterResp.Data.Arr == nil {
-			log.Printf("[Hunter] 查询无结果：total=%d, 查询语句：%s", hunterResp.Data.Total, searchQuery)
+			logger.Hunter().Printf("查询无结果：total=%d, 查询语句：%s", hunterResp.Data.Total, searchQuery)
 			return allURLs, nil
 		}
 
 		// 调试日志：显示查询结果
-		log.Printf("[Hunter] 查询：%s, 第%d页，返回 %d 条结果，总计：%d",
+		logger.Hunter().Printf("查询：%s, 第%d页，返回 %d 条结果，总计：%d",
 			searchQuery, page, len(hunterResp.Data.Arr), hunterResp.Data.Total)
 
 		if len(hunterResp.Data.Arr) == 0 {
@@ -151,13 +152,13 @@ func (c *Client) Search(ctx context.Context, query string, limit int) ([]string,
 		// 解析结果
 		for _, item := range hunterResp.Data.Arr {
 			urlStr := c.buildURL(item)
-			log.Printf("[Hunter] 构建URL: IP=%s, Port=%d, URL=%s => %s", item.IP, item.Port, item.URL, urlStr)
+			logger.Hunter().Printf("构建 URL: IP=%s, Port=%d, URL=%s => %s", item.IP, item.Port, item.URL, urlStr)
 			if urlStr != "" {
 				allURLs = append(allURLs, urlStr)
 			}
 		}
 
-		log.Printf("[Hunter] 本页累计收集到 %d 个URL", len(allURLs))
+		logger.Hunter().Printf("本页累计收集到 %d 个 URL", len(allURLs))
 
 		// 检查是否还有更多结果
 		if len(hunterResp.Data.Arr) < pageSize || (limit > 0 && len(allURLs) >= limit) {

@@ -369,6 +369,7 @@ const chatModel = ref<any>(null)
 const messages = ref<any[]>([])
 const inputMessage = ref('')
 const messagesContainer = ref<HTMLElement | null>(null)
+const sessionId = ref('') // 会话 ID，用于多轮对话绑定
 
 const viewMode = ref<'table' | 'card'>('table')
 const searchQuery = ref('')
@@ -504,6 +505,7 @@ const openChat = () => {
   chatModel.value = selectedModel.value
   messages.value = []
   inputMessage.value = ''
+  sessionId.value = '' // 重置会话 ID（首次对话时生成）
   showChatDialog.value = true
   showDetailDialog.value = false
   nextTick(() => {
@@ -544,12 +546,17 @@ const sendMessage = async () => {
       }
     }
     
+    // 如果没有 session_id，生成一个（第一次对话时）
+    const currentSessionId = sessionId.value || `session_${Date.now()}_${Math.random().toString(36).substring(2, 15)}`
+    if (!sessionId.value) {
+      sessionId.value = currentSessionId
+    }
+    
     const response = await axios.post('/v1/chat/completions', {
       model: chatModel.value.name,
-      messages: [
-        { role: 'user', content: message }
-      ],
-      stream: false
+      messages: messages.value.map(m => ({ role: m.role, content: m.content })),
+      stream: false,
+      session_id: currentSessionId // 传递 session_id 以实现会话绑定
     }, {
       headers
     })
@@ -604,22 +611,27 @@ onMounted(() => {
 }
 
 .stat-card {
-  background: #fff;
+  background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
   border-radius: 16px;
   padding: 24px;
   position: relative;
   overflow: hidden;
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
-  transition: all 0.3s ease;
+  box-shadow: var(--shadow-md);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   cursor: pointer;
   height: 100%;
   min-height: 120px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
 }
 
 .stat-card:hover {
   transform: translateY(-4px);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  box-shadow: var(--shadow-lg);
 }
+
+
 
 .stat-bg {
   position: absolute;
@@ -674,16 +686,20 @@ onMounted(() => {
 .stat-value {
   font-size: 32px;
   font-weight: 700;
-  color: #1e293b;
+  color: var(--text-primary);
   line-height: 1;
   margin-bottom: 6px;
+  transition: color 0.3s ease;
 }
+
 
 .stat-label {
   font-size: 13px;
-  color: #64748b;
+  color: var(--text-secondary);
   font-weight: 500;
+  transition: color 0.3s ease;
 }
+
 
 /* 搜索卡片 */
 .search-card {
@@ -704,8 +720,10 @@ onMounted(() => {
   gap: 10px;
   font-size: 16px;
   font-weight: 600;
-  color: #1e293b;
+  color: var(--text-primary);
+  transition: color 0.3s ease;
 }
+
 
 .filter-bar {
   display: flex;
@@ -750,56 +768,68 @@ onMounted(() => {
 
 .model-info .name {
   font-weight: 600;
-  color: #1e293b;
+  color: var(--text-primary);
   margin-bottom: 2px;
+  transition: color 0.3s ease;
 }
+
 
 .model-info .family {
   font-size: 12px;
-  color: #94a3b8;
+  color: var(--text-tertiary);
+  transition: color 0.3s ease;
 }
+
 
 .size-tag {
   display: flex;
   align-items: center;
   gap: 4px;
   font-size: 13px;
-  color: #475569;
+  color: var(--text-secondary);
+  transition: color 0.3s ease;
 }
+
 
 .status-icon {
   margin-right: 4px;
 }
 
 .text-muted {
-  color: #94a3b8;
+  color: var(--text-tertiary);
+  transition: color 0.3s ease;
 }
+
 
 /* 卡片视图 */
 .card-view {
   min-height: 400px;
+  padding-bottom: 20px;
 }
 
 .model-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
   gap: 20px;
+  margin-top: 20px;
 }
 
 .model-card {
-  background: #fff;
+  background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
   border-radius: 16px;
   overflow: hidden;
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
-  transition: all 0.3s ease;
+  box-shadow: var(--shadow-md);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   cursor: pointer;
   border: 2px solid transparent;
 }
 
 .model-card:hover {
   transform: translateY(-4px);
-  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.12);
+  box-shadow: var(--shadow-lg);
 }
+
+
 
 .model-card.available {
   border-color: rgba(34, 197, 94, 0.3);
@@ -811,7 +841,9 @@ onMounted(() => {
   align-items: center;
   padding: 24px;
   background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+  border-bottom: 1px solid #e2e8f0;
 }
+
 
 .model-emoji {
   font-size: 48px;
@@ -840,18 +872,22 @@ onMounted(() => {
 .card-title {
   font-size: 16px;
   font-weight: 600;
-  color: #1e293b;
+  color: var(--text-primary);
   margin: 0 0 8px 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  transition: color 0.3s ease;
 }
+
 
 .card-family {
   font-size: 13px;
-  color: #64748b;
+  color: var(--text-secondary);
   margin: 0 0 16px 0;
+  transition: color 0.3s ease;
 }
+
 
 .card-meta {
   display: flex;
@@ -864,11 +900,13 @@ onMounted(() => {
   align-items: center;
   gap: 4px;
   font-size: 12px;
-  color: #94a3b8;
+  color: var(--text-tertiary);
   padding: 4px 8px;
-  background: #f8fafc;
+  background: var(--bg-tertiary);
   border-radius: 6px;
+  transition: all 0.3s ease;
 }
+
 
 /* 模型详情对话框 */
 .detail-header {
@@ -890,9 +928,11 @@ onMounted(() => {
 .detail-name {
   font-size: 20px;
   font-weight: 700;
-  color: #1e293b;
+  color: var(--text-primary);
   margin: 0 0 8px 0;
+  transition: color 0.3s ease;
 }
+
 
 .detail-value {
   font-weight: 600;
@@ -928,7 +968,8 @@ onMounted(() => {
   }
 
   .model-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 16px;
   }
 
   :deep(.el-table__body-wrapper) {
@@ -938,6 +979,14 @@ onMounted(() => {
   .detail-header {
     flex-direction: column;
     text-align: center;
+  }
+  
+  .stats-row {
+    grid-template-columns: 1fr !important;
+  }
+  
+  .stat-card {
+    margin-bottom: 16px;
   }
 }
 
@@ -980,9 +1029,12 @@ onMounted(() => {
 
     &.assistant {
       .message-text {
-        background: #fff;
-        border: 1px solid #e2e8f0;
+        background: var(--bg-primary);
+        border: 1px solid var(--border-color);
+        color: var(--text-primary);
       }
+
+      
     }
   }
 

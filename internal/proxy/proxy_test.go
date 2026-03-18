@@ -451,3 +451,114 @@ func TestSessionBinding(t *testing.T) {
 		}
 	})
 }
+
+func TestModelMatches(t *testing.T) {
+	p := &ProxyService{}
+
+	tests := []struct {
+		name     string
+		requested string
+		available string
+		want     bool
+	}{
+		// 精确匹配
+		{
+			name:     "精确匹配_完全相同",
+			requested: "llama2:latest",
+			available: "llama2:latest",
+			want:     true,
+		},
+
+		// 基础名称匹配
+		{
+			name:     "基础名称匹配_请求无标签",
+			requested: "llama2",
+			available: "llama2:latest",
+			want:     true,
+		},
+		{
+			name:     "基础名称匹配_请求无标签匹配任何标签",
+			requested: "qwen2",
+			available: "qwen2:72b",
+			want:     true,
+		},
+		{
+			name:     "基础名称不同_不匹配",
+			requested: "llama2",
+			available: "qwen2:latest",
+			want:     false,
+		},
+
+		// 标签精确匹配
+		{
+			name:     "标签精确匹配",
+			requested: "llama2:latest",
+			available: "llama2:latest",
+			want:     true,
+		},
+
+		// 量化版本匹配
+		{
+			name:     "量化版本匹配_latest到latest-q4",
+			requested: "llama2:latest",
+			available: "llama2:latest-q4_K_M",
+			want:     true,
+		},
+		{
+			name:     "量化版本匹配_7b到7b-q8",
+			requested: "qwen2:7b",
+			available: "qwen2:7b-q8_0",
+			want:     true,
+		},
+
+		// 防止错误匹配（重要）
+		{
+			name:     "防止错误匹配_7b不匹配70b",
+			requested: "qwen2:7b",
+			available: "qwen2:70b",
+			want:     false,
+		},
+		{
+			name:     "防止错误匹配_70b不匹配7b",
+			requested: "qwen2:70b",
+			available: "qwen2:7b",
+			want:     false,
+		},
+		{
+			name:     "防止错误匹配_7b不匹配70b量化版",
+			requested: "qwen2:7b",
+			available: "qwen2:70b-q4_K_M",
+			want:     false,
+		},
+		{
+			name:     "防止错误匹配_13b不匹配70b",
+			requested: "qwen2:13b",
+			available: "qwen2:70b",
+			want:     false,
+		},
+
+		// 边界情况
+		{
+			name:     "边界_空字符串",
+			requested: "",
+			available: "llama2:latest",
+			want:     false,
+		},
+		{
+			name:     "边界_只有冒号",
+			requested: "llama2:",
+			available: "llama2:latest",
+			want:     false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := p.modelMatches(tt.requested, tt.available)
+			if got != tt.want {
+				t.Errorf("modelMatches(%q, %q) = %v, want %v",
+					tt.requested, tt.available, got, tt.want)
+			}
+		})
+	}
+}

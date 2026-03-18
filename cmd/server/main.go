@@ -40,17 +40,41 @@ func main() {
 		logger.Server().Fatalf("配置验证失败：%v", err)
 	}
 
+	// 初始化文件日志
+	if cfg.Log.Output != "" && cfg.Log.Output != "stdout" {
+		if err := logger.InitFileLogger(cfg.Log.Output); err != nil {
+			fmt.Printf("警告：初始化文件日志失败：%v, 将使用控制台输出\n", err)
+		}
+	}
+
+	// 设置日志级别
+	if cfg.Log.Level != "" {
+		logLevel := logger.ParseLogLevel(cfg.Log.Level)
+		logger.SetLogLevel(logLevel)
+		fmt.Printf("日志级别已设置为：%s\n", logLevel.String())
+	}
+
 	// 初始化存储
 	var store storage.Storage
 	switch cfg.Storage.Type {
 	case "sqlite":
-		store, err = storage.NewSQLiteStorage(cfg.Storage.SQLite.Path)
+		pool := cfg.Storage.Pool
+		store, err = storage.NewSQLiteStorageWithPool(
+			cfg.Storage.SQLite.Path,
+			pool.MaxOpenConns,
+			pool.MaxIdleConns,
+			time.Duration(pool.ConnMaxLifetime)*time.Second,
+			time.Duration(pool.ConnMaxIdleTime)*time.Second,
+		)
 		if err != nil {
 			logger.Storage().Fatalf("初始化 SQLite 存储失败：%v", err)
 		}
 	case "memory":
-		// TODO: 实现内存存储
-		logger.Server().Fatal("内存存储暂未实现，请使用 SQLite")
+		store, err = storage.NewMemoryStorage()
+		if err != nil {
+			logger.Storage().Fatalf("初始化内存存储失败：%v", err)
+		}
+		logger.Storage().Printf("使用内存存储（仅用于开发/测试环境）")
 	default:
 		logger.Server().Fatalf("不支持的存储类型：%s", cfg.Storage.Type)
 	}

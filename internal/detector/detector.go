@@ -14,15 +14,18 @@ import (
 	"sync/atomic"
 	"time"
 
+	"oppama/internal/concurrency"
 	"oppama/internal/storage"
 )
 
 // Detector 服务检测器
 type Detector struct {
-	config        *DetectorConfig
-	client        *http.Client
-	activeTasks   int64 // 当前活跃任务数
-	maxActiveTask int64 // 最大活跃任务数
+	config          *DetectorConfig
+	client          *http.Client
+	activeTasks     int64            // 当前活跃任务数
+	maxActiveTask   int64            // 最大活跃任务数
+	globalLimiter   *concurrency.Limiter // 全局并发限制器
+	mu              sync.Mutex       // 保护 globalLimiter
 }
 
 // DetectorConfig 检测器配置
@@ -57,6 +60,7 @@ func NewDetector(cfg *DetectorConfig) *Detector {
 			},
 		},
 		maxActiveTask: int64(cfg.Concurrency) * 2, // 允许的最大活跃任务
+		globalLimiter: concurrency.NewLimiter(cfg.Concurrency * 2), // 全局并发限制为配置的2倍
 	}
 }
 
@@ -220,6 +224,94 @@ func (d *Detector) checkModels(ctx context.Context, baseURL string) ([]storage.M
 	return models, nil
 }
 
+// GetModelDetails 获取模型详细信息（包括上下文长度）
+func (d *Detector) GetModelDetails(ctx context.Context, baseURL, modelName string) (*storage.ModelInfo, error) {
+	url := fmt.Sprintf("%s/api/show", baseURL)
+
+	payload := map[string]interface{}{
+		"name": modelName,
+	}
+
+	jsonData, err := json.Marshal(payload)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := d.client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("状态码：%d", resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	var showResp struct {
+		License    string `json:"license"`
+		Modelfile  string `json:"modelfile"`
+		Parameters struct {
+			NumCtx          int     `json:"num_ctx"`           // 上下文长度
+			NumBatch        int     `json:"num_batch"`         // 批处理大小
+			NumGqa          int     `json:"num_gqa"`           // GQA (Grouped Query Attention)
+			NumGpu          int     `json:"num_gpu"`           // GPU 层数
+			NumThread       int     `json:"num_thread"`        // 线程数
+			RepeatLastN     int     `json:"repeat_last_n"`     // 重复惩罚的 last n
+			RepeatPenalty   float64 `json:"repeat_penalty"`    // 重复惩罚
+			Temperature     float64 `json:"temperature"`       // 温度
+			TopK            int     `json:"top_k"`             // top_k 采样
+			TopP            float64 `json:"top_p"`             // top_p 采样
+		} `json:"parameters"`
+		Template string `json:"template"`
+		Details  struct {
+			Family            string `json:"family"`
+			Format            string `json:"format"`
+			ParameterSize     string `json:"parameter_size"`
+			QuantizationLevel string `json:"quantization_level"`
+		} `json:"details"`
+		ModelInfo struct {
+			Size       int64  `json:"size"`
+			Digest     string `json:"digest"`
+			ModifiedAt string `json:"modified_at"`
+		} `json:"model_info"`
+	}
+
+	if err := json.Unmarshal(body, &showResp); err != nil {
+		return nil, err
+	}
+
+	// 提取上下文长度，如果没有则使用默认值
+	contextLength := showResp.Parameters.NumCtx
+	if contextLength == 0 {
+		contextLength = 2048 // 默认 2048
+	}
+
+	return &storage.ModelInfo{
+		ID:            generateModelID(modelName),
+		Name:          modelName,
+		Size:          showResp.ModelInfo.Size,
+		Digest:        showResp.ModelInfo.Digest,
+		Family:        showResp.Details.Family,
+		Format:        showResp.Details.Format,
+		ParameterSize: showResp.Details.ParameterSize,
+		QuantLevel:    showResp.Details.QuantizationLevel,
+		ContextLength: contextLength,
+		IsAvailable:   true,
+		LastTested:    time.Now(),
+	}, nil
+}
+
 // checkHoneypot 蜜罐检测
 func (d *Detector) checkHoneypot(serviceURL, version string, responseTime time.Duration) (bool, []string) {
 	reasons := make([]string, 0)
@@ -317,13 +409,20 @@ func (d *Detector) testMaliciousPrompt(baseURL string) bool {
 	return false
 }
 
-// BatchDetect 批量检测（带过载保护）
+// BatchDetect 批量检测（带过载保护和全局并发控制）
 func (d *Detector) BatchDetect(ctx context.Context, urls []string) ([]*storage.DetectionResult, error) {
 	results := make([]*storage.DetectionResult, 0, len(urls))
 	resultChan := make(chan *storage.DetectionResult, len(urls))
-	semaphore := make(chan struct{}, d.config.Concurrency)
 
 	var wg sync.WaitGroup
+
+	// 获取全局并发限制器
+	d.mu.Lock()
+	if d.globalLimiter == nil {
+		d.globalLimiter = concurrency.NewLimiter(d.config.Concurrency * 2)
+	}
+	limiter := d.globalLimiter
+	d.mu.Unlock()
 
 	for _, u := range urls {
 		// 检查上下文是否已取消
@@ -337,23 +436,28 @@ func (d *Detector) BatchDetect(ctx context.Context, urls []string) ([]*storage.D
 		go func(serviceURL string) {
 			defer wg.Done()
 
-			select {
-			case semaphore <- struct{}{}:
-				defer func() { <-semaphore }()
-
-				result, err := d.Detect(ctx, serviceURL)
-				if err != nil {
-					result = &storage.DetectionResult{
-						URL:       serviceURL,
-						Error:     err.Error(),
-						IsValid:   false,
-						CheckedAt: time.Now(),
-					}
+			// 先尝试获取全局许可
+			if err := limiter.Acquire(ctx); err != nil {
+				resultChan <- &storage.DetectionResult{
+					URL:       serviceURL,
+					Error:     "获取并发许可失败：" + err.Error(),
+					IsValid:   false,
+					CheckedAt: time.Now(),
 				}
-				resultChan <- result
-			case <-ctx.Done():
 				return
 			}
+			defer limiter.Release()
+
+			result, err := d.Detect(ctx, serviceURL)
+			if err != nil {
+				result = &storage.DetectionResult{
+					URL:       serviceURL,
+					Error:     err.Error(),
+					IsValid:   false,
+					CheckedAt: time.Now(),
+				}
+			}
+			resultChan <- result
 		}(u)
 	}
 
@@ -409,6 +513,39 @@ func (d *Detector) GetActiveTasks() int64 {
 // IsOverloaded 检查是否过载
 func (d *Detector) IsOverloaded() bool {
 	return atomic.LoadInt64(&d.activeTasks) >= d.maxActiveTask
+}
+
+// GetConcurrencyStats 获取并发统计信息
+func (d *Detector) GetConcurrencyStats() map[string]interface{} {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	stats := map[string]interface{}{
+		"active_tasks":    atomic.LoadInt64(&d.activeTasks),
+		"max_active_task": d.maxActiveTask,
+		"config_concurrency": d.config.Concurrency,
+	}
+
+	if d.globalLimiter != nil {
+		limiterStats := d.globalLimiter.Stats()
+		for k, v := range limiterStats {
+			stats["global_"+k] = v
+		}
+	}
+
+	return stats
+}
+
+// SetGlobalConcurrency 设置全局并发限制
+func (d *Detector) SetGlobalConcurrency(max int) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	if d.globalLimiter == nil {
+		d.globalLimiter = concurrency.NewLimiter(max)
+	} else {
+		d.globalLimiter.SetMaxConcurrent(max)
+	}
 }
 
 // 辅助函数

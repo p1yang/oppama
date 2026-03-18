@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -28,6 +29,11 @@ type SQLiteStorage struct {
 
 // NewSQLiteStorage 创建 SQLite 存储实例
 func NewSQLiteStorage(dbPath string) (*SQLiteStorage, error) {
+	return NewSQLiteStorageWithPool(dbPath, 25, 5, 30*time.Minute, 5*time.Minute)
+}
+
+// NewSQLiteStorageWithPool 创建带自定义连接池配置的 SQLite 存储实例
+func NewSQLiteStorageWithPool(dbPath string, maxOpenConns, maxIdleConns int, connMaxLifetime, connMaxIdleTime time.Duration) (*SQLiteStorage, error) {
 	// 确保目录存在
 	dir := filepath.Dir(dbPath)
 	if err := os.MkdirAll(dir, 0755); err != nil {
@@ -60,11 +66,14 @@ func NewSQLiteStorage(dbPath string) (*SQLiteStorage, error) {
 		logger.Storage().Printf("SQLite WAL模式已启用")
 	}
 
-	// 设置连接池优化
-	db.SetMaxOpenConns(25)
-	db.SetMaxIdleConns(5)
-	db.SetConnMaxLifetime(30 * time.Minute)
-	db.SetConnMaxIdleTime(5 * time.Minute)
+	// 设置连接池优化（使用配置的参数）
+	db.SetMaxOpenConns(maxOpenConns)
+	db.SetMaxIdleConns(maxIdleConns)
+	db.SetConnMaxLifetime(connMaxLifetime)
+	db.SetConnMaxIdleTime(connMaxIdleTime)
+
+	logger.Storage().Printf("数据库连接池配置：max_open=%d, max_idle=%d, max_lifetime=%v, max_idle=%v",
+		maxOpenConns, maxIdleConns, connMaxLifetime, connMaxIdleTime)
 
 	s := &SQLiteStorage{db: db}
 	if err := s.initSchema(); err != nil {
@@ -272,12 +281,10 @@ func (s *SQLiteStorage) SaveService(ctx context.Context, svc *OllamaService) err
 	return err
 }
 
-// GetService 获取服务
+// GetService 获取服务（优化版：解决 N+1 查询问题）
 func (s *SQLiteStorage) GetService(ctx context.Context, id string) (*OllamaService, error) {
 	s.serviceMu.RLock()
 	defer s.serviceMu.RUnlock()
-	// 注意：GetModelsByService会获取modelMu.RLock()
-	// 由于都是读锁且锁顺序一致（service->model），不会死锁
 
 	query := `SELECT * FROM services WHERE id = ?`
 	row := s.db.QueryRowContext(ctx, query, id)
@@ -305,8 +312,11 @@ func (s *SQLiteStorage) GetService(ctx context.Context, id string) (*OllamaServi
 		json.Unmarshal([]byte(metadataJSON.String), &svc.Metadata)
 	}
 
-	// 加载模型
-	models, err := s.GetModelsByService(ctx, svc.ID)
+	// 加载模型（使用批量查询方法）
+	s.modelMu.RLock()
+	models, err := s.getModelsByServiceIDs(ctx, []string{svc.ID})
+	s.modelMu.RUnlock()
+
 	if err != nil {
 		return nil, err
 	}
@@ -315,35 +325,42 @@ func (s *SQLiteStorage) GetService(ctx context.Context, id string) (*OllamaServi
 	return svc, nil
 }
 
-// ListServices 列出服务
+// ListServices 列出服务（优化版：解决 N+1 查询问题）
 func (s *SQLiteStorage) ListServices(ctx context.Context, filter ServiceFilter) ([]*OllamaService, error) {
 	s.serviceMu.RLock()
 	defer s.serviceMu.RUnlock()
-	// 注意：GetModelsByService会获取modelMu.RLock()
-	// 由于都是读锁且锁顺序一致（service->model），不会死锁
 
-	query := `SELECT * FROM services WHERE 1=1`
+	// 构建查询条件
+	whereClause := "WHERE 1=1"
 	args := []interface{}{}
 
 	if filter.Status != nil {
-		query += ` AND status = ?`
+		whereClause += ` AND s.status = ?`
 		args = append(args, *filter.Status)
 	}
 	if filter.Source != nil {
-		query += ` AND source = ?`
+		whereClause += ` AND s.source = ?`
 		args = append(args, *filter.Source)
 	}
 	if filter.IsHoneypot != nil {
-		query += ` AND is_honeypot = ?`
+		whereClause += ` AND s.is_honeypot = ?`
 		args = append(args, *filter.IsHoneypot)
 	}
 	if filter.Search != "" {
-		query += ` AND (name LIKE ? OR url LIKE ? OR version LIKE ?)`
+		whereClause += ` AND (s.name LIKE ? OR s.url LIKE ? OR s.version LIKE ?)`
 		searchTerm := "%" + filter.Search + "%"
 		args = append(args, searchTerm, searchTerm, searchTerm)
 	}
 
-	query += ` ORDER BY created_at DESC`
+	// 先获取服务列表（带分页）
+	query := `
+		SELECT s.id, s.url, s.name, s.status, s.version, s.response_time,
+		       s.is_honeypot, s.requires_auth, s.country, s.region, s.city,
+		       s.isp, s.source, s.metadata, s.last_checked, s.created_at, s.updated_at
+		FROM services s
+		` + whereClause + `
+		ORDER BY s.created_at DESC
+	`
 
 	if filter.PageSize > 0 {
 		offset := 0
@@ -360,7 +377,10 @@ func (s *SQLiteStorage) ListServices(ctx context.Context, filter ServiceFilter) 
 	}
 	defer rows.Close()
 
-	services := make([]*OllamaService, 0)
+	// 收集所有服务 ID
+	serviceIDs := make([]string, 0)
+	servicesMap := make(map[string]*OllamaService)
+
 	for rows.Next() {
 		svc := &OllamaService{}
 		var metadataJSON sql.NullString
@@ -382,17 +402,40 @@ func (s *SQLiteStorage) ListServices(ctx context.Context, filter ServiceFilter) 
 			json.Unmarshal([]byte(metadataJSON.String), &svc.Metadata)
 		}
 
-		// 加载该服务的模型列表
-		models, err := s.GetModelsByService(ctx, svc.ID)
+		svc.Models = make([]ModelInfo, 0) // 初始化模型列表
+		serviceIDs = append(serviceIDs, svc.ID)
+		servicesMap[svc.ID] = svc
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	// 一次性查询所有服务的模型
+	if len(serviceIDs) > 0 {
+		s.modelMu.RLock()
+		models, err := s.getModelsByServiceIDs(ctx, serviceIDs)
+		s.modelMu.RUnlock()
+
 		if err != nil {
 			return nil, err
 		}
-		svc.Models = models
 
-		services = append(services, svc)
+		// 将模型分配到对应的服务
+		for _, model := range models {
+			if svc, exists := servicesMap[model.ServiceID]; exists {
+				svc.Models = append(svc.Models, model)
+			}
+		}
 	}
 
-	return services, rows.Err()
+	// 转换为切片并保持原始顺序
+	services := make([]*OllamaService, 0, len(serviceIDs))
+	for _, serviceID := range serviceIDs {
+		services = append(services, servicesMap[serviceID])
+	}
+
+	return services, nil
 }
 
 // DeleteService 删除服务
@@ -457,6 +500,58 @@ func (s *SQLiteStorage) SaveModels(ctx context.Context, serviceID string, models
 	}
 
 	return tx.Commit()
+}
+
+// getModelsByServiceIDs 批量获取多个服务的模型（内部方法，不对外暴露）
+// 用于优化 ListServices 的 N+1 查询问题
+func (s *SQLiteStorage) getModelsByServiceIDs(ctx context.Context, serviceIDs []string) ([]ModelInfo, error) {
+	if len(serviceIDs) == 0 {
+		return []ModelInfo{}, nil
+	}
+
+	// 构建 IN 查询
+	placeholders := make([]string, len(serviceIDs))
+	args := make([]interface{}, len(serviceIDs))
+	for i, id := range serviceIDs {
+		placeholders[i] = "?"
+		args[i] = id
+	}
+
+	query := `
+		SELECT id, service_id, name, size, digest, family, format,
+		       parameter_size, quantization_level, is_available, last_tested
+		FROM models
+		WHERE service_id IN (` + strings.Join(placeholders, ",") + `)
+		ORDER BY service_id, name
+	`
+
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	models := make([]ModelInfo, 0)
+	for rows.Next() {
+		var m ModelInfo
+		var lastTested sql.NullTime
+
+		err := rows.Scan(
+			&m.ID, &m.ServiceID, &m.Name, &m.Size, &m.Digest, &m.Family,
+			&m.Format, &m.ParameterSize, &m.QuantLevel, &m.IsAvailable, &lastTested,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		if lastTested.Valid {
+			m.LastTested = lastTested.Time
+		}
+
+		models = append(models, m)
+	}
+
+	return models, rows.Err()
 }
 
 // GetModelsByService 获取服务的模型列表

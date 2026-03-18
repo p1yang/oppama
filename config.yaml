@@ -96,8 +96,14 @@ storage:
         user: ""
         password: ""
     retention_days: 30
+    # 数据库连接池配置
+    pool:
+        max_open_conns: 25
+        max_idle_conns: 5
+        conn_max_lifetime: 1800  # 秒，30分钟
+        conn_max_idle_time: 300  # 秒，5分钟
 log:
-    level: info
+    level: debug
     format: json
     output: ./logs/server.log
     max_size: 100

@@ -61,6 +61,7 @@ type ModelInfo struct {
 	Format        string    `json:"format"`
 	ParameterSize string    `json:"parameter_size"`
 	QuantLevel    string    `json:"quantization_level"`
+	ContextLength int       `json:"context_length"` // 最大上下文长度（token 数）
 	IsAvailable   bool      `json:"is_available"`
 	LastTested    time.Time `json:"last_tested"`
 }

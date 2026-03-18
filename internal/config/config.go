@@ -116,10 +116,11 @@ type ShodanConfig struct {
 
 // StorageConfig 存储配置
 type StorageConfig struct {
-	Type          string         `yaml:"type"` // memory, sqlite, postgres
-	SQLite        SQLiteConfig   `yaml:"sqlite"`
-	Postgres      PostgresConfig `yaml:"postgres"`
-	RetentionDays int            `yaml:"retention_days"`
+	Type          string          `yaml:"type"` // memory, sqlite, postgres
+	SQLite        SQLiteConfig    `yaml:"sqlite"`
+	Postgres      PostgresConfig  `yaml:"postgres"`
+	RetentionDays int             `yaml:"retention_days"`
+	Pool          PoolConfig      `yaml:"pool"` // 连接池配置
 }
 
 // SQLiteConfig SQLite 配置
@@ -134,6 +135,14 @@ type PostgresConfig struct {
 	Database string `yaml:"database"`
 	User     string `yaml:"user"`
 	Password string `yaml:"password"`
+}
+
+// PoolConfig 数据库连接池配置
+type PoolConfig struct {
+	MaxOpenConns    int `yaml:"max_open_conns"`    // 最大打开连接数
+	MaxIdleConns    int `yaml:"max_idle_conns"`    // 最大空闲连接数
+	ConnMaxLifetime int `yaml:"conn_max_lifetime"` // 连接最大生命周期（秒）
+	ConnMaxIdleTime int `yaml:"conn_max_idle_time"` // 连接最大空闲时间（秒）
 }
 
 // LogConfig 日志配置
@@ -291,6 +300,19 @@ func setDefaults(cfg *Config) {
 	}
 	if cfg.Storage.RetentionDays == 0 {
 		cfg.Storage.RetentionDays = 30
+	}
+	// 连接池默认值
+	if cfg.Storage.Pool.MaxOpenConns == 0 {
+		cfg.Storage.Pool.MaxOpenConns = 25
+	}
+	if cfg.Storage.Pool.MaxIdleConns == 0 {
+		cfg.Storage.Pool.MaxIdleConns = 5
+	}
+	if cfg.Storage.Pool.ConnMaxLifetime == 0 {
+		cfg.Storage.Pool.ConnMaxLifetime = 1800 // 30 分钟
+	}
+	if cfg.Storage.Pool.ConnMaxIdleTime == 0 {
+		cfg.Storage.Pool.ConnMaxIdleTime = 300 // 5 分钟
 	}
 
 	// Log 默认值

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math/rand"
 	"sync"
 	"time"
 
@@ -307,9 +308,10 @@ func generateTaskID() string {
 func randomString(n int) string {
 	const letters = "abcdefghijklmnopqrstuvwxyz0123456789"
 	b := make([]byte, n)
+	// 使用时间戳作为随机种子（对于生成 ID 来说足够安全）
+	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
 	for i := range b {
-		b[i] = letters[time.Now().UnixNano()%int64(len(letters))]
-		time.Sleep(time.Nanosecond)
+		b[i] = letters[rng.Intn(len(letters))]
 	}
 	return string(b)
 }

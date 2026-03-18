@@ -2,7 +2,6 @@ package scheduler
 
 import (
 	"context"
-	"log"
 	"sync"
 	"time"
 
@@ -10,6 +9,7 @@ import (
 	"oppama/internal/detector"
 	"oppama/internal/storage"
 	"oppama/internal/task"
+	"oppama/internal/utils/logger"
 )
 
 // Scheduler 定时任务调度器
@@ -25,8 +25,9 @@ type Scheduler struct {
 	detectorCfgMu sync.RWMutex
 	config        *config.DetectorConfig // 保存配置对象的引用以读取间隔设置
 	// 代理会话清理相关
-	proxyService       interface{ CleanupExpiredSessions() } // 代理服务接口
-	sessionCleanTicker *time.Ticker
+	proxyService      interface{ CleanupExpiredSessions() } // 代理服务接口
+	// 重启相关
+	intervalChanged chan struct{} // 间隔变更信号
 }
 
 // NewScheduler 创建调度器
@@ -45,21 +46,22 @@ func NewScheduler(taskMgr *task.Manager, storage storage.Storage, detectorCfg *d
 	}
 
 	return &Scheduler{
-		taskMgr:       taskMgr,
-		storage:       storage,
-		interval:      healthCheckInterval,
-		modelInterval: modelSyncInterval,
-		stopChan:      make(chan struct{}),
-		tickers:       make(map[string]*time.Ticker),
-		detectorCfg:   detectorCfg,
-		config:        config,
+		taskMgr:          taskMgr,
+		storage:          storage,
+		interval:         healthCheckInterval,
+		modelInterval:    modelSyncInterval,
+		stopChan:         make(chan struct{}),
+		tickers:          make(map[string]*time.Ticker),
+		detectorCfg:      detectorCfg,
+		config:           config,
+		intervalChanged:  make(chan struct{}, 1), // 缓冲1个信号
 	}
 }
 
 // SetProxyService 设置代理服务（用于会话清理）
 func (s *Scheduler) SetProxyService(proxySvc interface{ CleanupExpiredSessions() }) {
 	s.proxyService = proxySvc
-	log.Printf("[Scheduler] 代理服务已设置，将定期清理过期会话")
+	logger.Scheduler().Debug("代理服务已设置，将定期清理过期会话")
 }
 
 // UpdateDetectorConfig 更新检测器配置
@@ -67,7 +69,7 @@ func (s *Scheduler) UpdateDetectorConfig(cfg *detector.DetectorConfig) {
 	s.detectorCfgMu.Lock()
 	defer s.detectorCfgMu.Unlock()
 	s.detectorCfg = cfg
-	log.Printf("[Scheduler] 检测器配置已更新：timeout=%v, concurrency=%d", cfg.Timeout, cfg.Concurrency)
+	logger.Scheduler().Debug("检测器配置已更新：timeout=%v, concurrency=%d", cfg.Timeout, cfg.Concurrency)
 }
 
 // SetHealthCheckInterval 设置健康检查间隔（单位：分钟）
@@ -82,15 +84,14 @@ func (s *Scheduler) SetHealthCheckInterval(minutes int) {
 	s.interval = newInterval
 	s.detectorCfgMu.Unlock()
 
-	log.Printf("[Scheduler] 健康检查间隔已更新：%v -> %v", oldInterval, newInterval)
+	logger.Scheduler().Debug("健康检查间隔已更新：%v -> %v", oldInterval, newInterval)
 
-	// 重启健康检查任务以应用新间隔
-	go func() {
-		s.stopChan <- struct{}{} // 停止旧的 ticker
-		close(s.stopChan)
-		s.stopChan = make(chan struct{})
-		go s.startHealthCheck()
-	}()
+	// 发送重启信号
+	select {
+	case s.intervalChanged <- struct{}{}:
+	default:
+		// 已经有重启信号在队列中
+	}
 }
 
 // SetModelSyncInterval 设置模型同步间隔（单位：分钟）
@@ -105,15 +106,14 @@ func (s *Scheduler) SetModelSyncInterval(minutes int) {
 	s.modelInterval = newInterval
 	s.detectorCfgMu.Unlock()
 
-	log.Printf("[Scheduler] 模型同步间隔已更新：%v -> %v", oldInterval, newInterval)
+	logger.Scheduler().Debug("模型同步间隔已更新：%v -> %v", oldInterval, newInterval)
 
-	// 重启模型同步任务以应用新间隔
-	go func() {
-		s.stopChan <- struct{}{} // 停止旧的 ticker
-		close(s.stopChan)
-		s.stopChan = make(chan struct{})
-		go s.startModelSync()
-	}()
+	// 发送重启信号
+	select {
+	case s.intervalChanged <- struct{}{}:
+	default:
+		// 已经有重启信号在队列中
+	}
 }
 
 // GetIntervals 获取当前的时间间隔设置
@@ -132,7 +132,7 @@ func (s *Scheduler) getDetectorConfig() *detector.DetectorConfig {
 
 // Start 启动调度器
 func (s *Scheduler) Start() {
-	log.Println("启动定时任务调度器...")
+	logger.Scheduler().Info("启动定时任务调度器...")
 
 	// 启动健康检查任务
 	go s.startHealthCheck()
@@ -145,12 +145,30 @@ func (s *Scheduler) Start() {
 		go s.startSessionCleanup()
 	}
 
-	log.Println("定时任务调度器启动成功")
+	// 启动间隔变更监控
+	go s.monitorIntervalChanges()
+
+	logger.Scheduler().Info("定时任务调度器启动成功")
+}
+
+// monitorIntervalChanges 监控间隔变更并安全重启任务
+func (s *Scheduler) monitorIntervalChanges() {
+	for {
+		select {
+		case <-s.intervalChanged:
+			logger.Scheduler().Debug("检测到间隔变更，重启定时任务...")
+			// 等待一小段时间，让其他操作完成
+			time.Sleep(100 * time.Millisecond)
+			// 这里的 ticker 会自动使用新的间隔值
+		case <-s.stopChan:
+			return
+		}
+	}
 }
 
 // Stop 停止调度器
 func (s *Scheduler) Stop() {
-	log.Println("停止定时任务调度器...")
+	logger.Scheduler().Info("停止定时任务调度器...")
 	close(s.stopChan)
 
 	// 安全地读取并停止所有 ticker
@@ -174,14 +192,14 @@ func (s *Scheduler) startHealthCheck() {
 
 	defer ticker.Stop()
 
-	log.Printf("启动定期健康检查，间隔：%v", s.interval)
+	logger.Scheduler().Debug("启动定期健康检查，间隔：%v", s.interval)
 
 	for {
 		select {
 		case <-ticker.C:
 			s.runHealthCheck()
 		case <-s.stopChan:
-			log.Println("停止健康检查任务")
+			logger.Scheduler().Debug("停止健康检查任务")
 			return
 		}
 	}
@@ -194,11 +212,11 @@ func (s *Scheduler) runHealthCheck() {
 	// 获取所有在线服务
 	services, err := s.storage.ListServices(ctx, storage.ServiceFilter{})
 	if err != nil {
-		log.Printf("获取服务列表失败：%v", err)
+		logger.Scheduler().Error("获取服务列表失败：%v", err)
 		return
 	}
 
-	log.Printf("开始健康检查，共 %d 个服务", len(services))
+	logger.Scheduler().Debug("开始健康检查，共 %d 个服务", len(services))
 
 	// 使用当前配置创建检测器
 	det := detector.NewDetector(s.getDetectorConfig())
@@ -222,10 +240,10 @@ func (s *Scheduler) runHealthCheck() {
 			}
 
 			// 使用检测器进行健康检查
-			log.Printf("检查服务：%s (%s)", svc.Name, svc.URL)
+			logger.Scheduler().Debug("检查服务：%s (%s)", svc.Name, svc.URL)
 			result, err := det.Detect(ctx, svc.URL)
 			if err != nil {
-				log.Printf("检测服务 %s 失败：%v", svc.URL, err)
+				logger.Scheduler().Error("检测服务 %s 失败：%v", svc.URL, err)
 				return
 			}
 
@@ -243,14 +261,14 @@ func (s *Scheduler) runHealthCheck() {
 			svc.LastChecked = time.Now()
 
 			if err := s.storage.SaveService(ctx, svc); err != nil {
-				log.Printf("保存服务状态失败：%v", err)
+				logger.Scheduler().Error("保存服务状态失败：%v", err)
 			}
 		}(service)
 	}
 
 	// 等待所有检测完成
 	wg.Wait()
-	log.Println("健康检查完成")
+	logger.Scheduler().Debug("健康检查完成")
 }
 
 // startModelSync 启动定期模型同步
@@ -268,14 +286,14 @@ func (s *Scheduler) startModelSync() {
 
 	defer ticker.Stop()
 
-	log.Printf("启动定期模型同步，间隔：%v", interval)
+	logger.Scheduler().Debug("启动定期模型同步，间隔：%v", interval)
 
 	for {
 		select {
 		case <-ticker.C:
 			s.runModelSync()
 		case <-s.stopChan:
-			log.Println("停止模型同步任务")
+			logger.Scheduler().Debug("停止模型同步任务")
 			return
 		}
 	}
@@ -293,11 +311,11 @@ func (s *Scheduler) runModelSync() {
 		}(),
 	})
 	if err != nil {
-		log.Printf("获取在线服务列表失败：%v", err)
+		logger.Scheduler().Error("获取在线服务列表失败：%v", err)
 		return
 	}
 
-	log.Printf("开始模型同步，共 %d 个在线服务", len(services))
+	logger.Scheduler().Debug("开始模型同步，共 %d 个在线服务", len(services))
 
 	// 使用当前配置创建检测器
 	det := detector.NewDetector(s.getDetectorConfig())
@@ -320,33 +338,33 @@ func (s *Scheduler) runModelSync() {
 				return
 			}
 
-			log.Printf("同步服务模型：%s (%s)", svc.Name, svc.URL)
+			logger.Scheduler().Debug("同步服务模型：%s (%s)", svc.Name, svc.URL)
 
 			// 调用检测器获取最新模型列表
 			result, err := det.Detect(ctx, svc.URL)
 			if err != nil {
-				log.Printf("检测服务 %s 失败：%v", svc.URL, err)
+				logger.Scheduler().Error("检测服务 %s 失败：%v", svc.URL, err)
 				return
 			}
 
 			if !result.IsValid || len(result.Models) == 0 {
-				log.Printf("服务 %s 无效或无模型", svc.URL)
+				logger.Scheduler().Warn("服务 %s 无效或无模型", svc.URL)
 				return
 			}
 
 			// 保存模型到数据库
 			if err := s.storage.SaveModels(ctx, svc.ID, result.Models); err != nil {
-				log.Printf("保存模型失败：%v", err)
+				logger.Scheduler().Error("保存模型失败：%v", err)
 				return
 			}
 
-			log.Printf("成功同步 %d 个模型到服务 %s", len(result.Models), svc.URL)
+			logger.Scheduler().Debug("成功同步 %d 个模型到服务 %s", len(result.Models), svc.URL)
 		}(service)
 	}
 
 	// 等待所有检测完成
 	wg.Wait()
-	log.Println("模型同步完成")
+	logger.Scheduler().Debug("模型同步完成")
 }
 
 // startSessionCleanup 启动定期会话清理
@@ -359,14 +377,14 @@ func (s *Scheduler) startSessionCleanup() {
 	ticker := time.NewTicker(5 * time.Minute)
 	defer ticker.Stop()
 
-	log.Printf("[Scheduler] 启动定期会话清理，间隔：5 分钟")
+	logger.Scheduler().Debug("启动定期会话清理，间隔：5 分钟")
 
 	for {
 		select {
 		case <-ticker.C:
 			s.proxyService.CleanupExpiredSessions()
 		case <-s.stopChan:
-			log.Println("[Scheduler] 停止会话清理任务")
+			logger.Scheduler().Debug("停止会话清理任务")
 			return
 		}
 	}

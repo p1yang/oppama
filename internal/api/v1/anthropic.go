@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"regexp"
 	"strings"
 	"time"
 
@@ -318,6 +317,27 @@ func (h *AnthropicHandler) handleStreamMessages(c *gin.Context, req *MessagesReq
 	sentToolStart := make(map[int]bool) // tool_index -> started
 	toolIndex := 0                      // 工具调用索引
 
+	// 启动心跳包 goroutine，防止连接超时
+	heartbeatTicker := time.NewTicker(15 * time.Second)
+	defer heartbeatTicker.Stop()
+
+	done := make(chan struct{})
+	defer close(done)
+
+	// 心跳包发送协程
+	go func() {
+		for {
+			select {
+			case <-done:
+				return
+			case <-heartbeatTicker.C:
+				// 发送 SSE 注释行作为心跳（不会触发客户端事件）
+				c.Writer.WriteString(": heartbeat\n\n")
+				c.Writer.Flush()
+			}
+		}
+	}()
+
 	// 调用流式接口
 	err := h.proxy.StreamChatCompletions(ctx, openaiReq, func(chunk *proxy.ChatCompletionResponse) error {
 		if len(chunk.Choices) == 0 {
@@ -451,14 +471,6 @@ func (h *AnthropicHandler) handleStreamMessages(c *gin.Context, req *MessagesReq
 func (h *AnthropicHandler) convertToOpenAIFormat(req *MessagesRequest) *proxy.ChatCompletionRequest {
 	messages := make([]proxy.Message, 0, len(req.Messages))
 
-	// 如果有 system 提示，添加到消息中
-	if req.System.String() != "" {
-		messages = append(messages, proxy.Message{
-			Role:    "system",
-			Content: req.System.String(),
-		})
-	}
-
 	// 转换消息
 	for _, msg := range req.Messages {
 		// 检查消息内容是否包含工具调用或图像
@@ -541,24 +553,20 @@ func (h *AnthropicHandler) convertToOpenAIFormat(req *MessagesRequest) *proxy.Ch
 		}
 	}
 
-	// 注意：Ollama 可能不支持 ResponseFormat，我们通过系统提示来实现结构化输出
-	// 如果请求 JSON 格式，添加到系统提示中
+	// 处理系统提示和 JSON 格式请求
+	systemPrompt := req.System.String()
 	if req.ResponseFormat != nil && req.ResponseFormat.Type == "json_object" {
-		// 在系统提示中添加 JSON 输出指令
-		if req.System.String() != "" {
-			req.System.RawString = req.System.String() + "\n请以 JSON 格式回复。"
+		if systemPrompt != "" {
+			systemPrompt += "\n请以 JSON 格式回复。"
 		} else {
-			// 如果没有系统提示，创建一个
-			req.System = SystemContent{
-				RawString: "请以 JSON 格式回复。",
-				IsArray:   false,
-			}
+			systemPrompt = "请以 JSON 格式回复。"
 		}
 	}
 
 	return &proxy.ChatCompletionRequest{
 		Model:       req.Model,
 		Messages:    messages,
+		System:      systemPrompt,
 		Temperature: req.Temperature,
 		TopP:        req.TopP,
 		MaxTokens:   req.MaxTokens,
@@ -586,7 +594,7 @@ func (h *AnthropicHandler) convertToAnthropicFormat(openaiResp *proxy.ChatComple
 	}
 
 	choice := openaiResp.Choices[0]
-	content := choice.Message.Content
+	content := proxy.GetContentString(choice.Message.Content)
 	stopReason := "end_turn"
 
 	// 转换停止原因
@@ -688,50 +696,6 @@ func (h *AnthropicHandler) ListModels(c *gin.Context) {
 	})
 }
 
-// parseFunctionCallsFromText 从文本中解析函数调用 (Ollama 风格)
-func (h *AnthropicHandler) parseFunctionCallsFromText(text string) []ContentBlock {
-	var blocks []ContentBlock
-
-	// 首先尝试匹配 <function_calls> 标签
-	if !strings.Contains(text, "<function_calls>") {
-		return nil
-	}
-
-	// 提取所有 <invoke> 标签（支持多行）
-	invokePattern := regexp.MustCompile(`(?s)<invoke\s+name="([^"]+)"[^>]*>(.*?)</invoke>`)
-	invokes := invokePattern.FindAllStringSubmatch(text, -1)
-
-	for _, match := range invokes {
-		if len(match) < 3 {
-			continue
-		}
-
-		funcBody := match[2]
-
-		// 尝试从函数体中提取参数
-		params := make(map[string]interface{})
-		paramPattern := regexp.MustCompile(`(?s)<parameter\s+name="([^"]+)"(?:\s+string="(true|false)")?[^>]*>(.*?)</parameter>`)
-		paramsMatches := paramPattern.FindAllStringSubmatch(funcBody, -1)
-
-		for _, paramMatch := range paramsMatches {
-			if len(paramMatch) >= 4 {
-				paramName := paramMatch[1]
-				paramValue := paramMatch[3]
-				params[paramName] = paramValue
-			}
-		}
-
-		// 创建工具调用内容块
-		toolCallBlock := ContentBlock{
-			Type: "tool_use",
-			Text: "", // 工具调用不使用 text 字段
-		}
-		// 注意：Anthropic 的工具调用格式不同，这里需要进一步处理
-		blocks = append(blocks, toolCallBlock)
-	}
-
-	return blocks
-}
 
 // sendError 发送统一的错误响应
 func (h *AnthropicHandler) sendError(c *gin.Context, statusCode int, errorType, message string) {

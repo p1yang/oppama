@@ -472,6 +472,35 @@ func (s *Server) registerRoutes() {
 		openaiGroup.POST("/chat/completions", openaiHandler.ChatCompletions)
 		openaiGroup.GET("/models", openaiHandler.ListModels)
 		openaiGroup.POST("/chat", openaiHandler.Chat)
+		openaiGroup.POST("/embeddings", openaiHandler.Embeddings)
+		// Audio API
+		openaiGroup.POST("/audio/transcriptions", openaiHandler.CreateTranscription)
+		openaiGroup.POST("/audio/translations", openaiHandler.CreateTranslation)
+		openaiGroup.POST("/audio/speech", openaiHandler.CreateSpeech)
+		// Moderations API
+		openaiGroup.POST("/moderations", openaiHandler.CreateModeration)
+
+		// Batch API
+		openaiGroup.POST("/batches", openaiHandler.CreateBatch)
+
+		// Files API
+		openaiGroup.GET("/files", openaiHandler.ListFiles)
+		openaiGroup.POST("/files", openaiHandler.UploadFile)
+		openaiGroup.DELETE("/files/:file_id", openaiHandler.DeleteFile)
+
+		// Fine-tuning API
+		openaiGroup.POST("/fine_tuning/jobs", openaiHandler.CreateFineTuningJob)
+		openaiGroup.GET("/fine_tuning/jobs", openaiHandler.ListFineTuningJobs)
+
+		// Assistants API
+		openaiGroup.POST("/assistants", openaiHandler.CreateAssistant)
+		openaiGroup.GET("/assistants", openaiHandler.ListAssistants)
+		openaiGroup.POST("/threads", openaiHandler.CreateThread)
+		openaiGroup.POST("/threads/:thread_id/messages", openaiHandler.CreateMessage)
+		openaiGroup.POST("/threads/:thread_id/runs", openaiHandler.CreateRun)
+
+		// Images API
+		openaiGroup.POST("/images/generations", openaiHandler.CreateImages)
 	}
 
 	// Anthropic 兼容接口（使用相同的 API Key 认证，与 OpenAI API 权限一致）

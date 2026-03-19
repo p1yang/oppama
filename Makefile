@@ -1,4 +1,4 @@
-.PHONY: build run test clean docker-build docker-run help
+.PHONY: build run test clean docker-build docker-run help certs certs-clean
 
 # 变量
 BINARY_NAME=oppama
@@ -110,6 +110,16 @@ init-config:
 	cp .env.example .env
 	@echo "配置文件已生成，请编辑 config.yaml 和 .env 文件"
 
+# HTTPS 证书相关
+certs:
+	@echo "生成 HTTPS 自签名证书..."
+	@bash scripts/generate_cert.sh
+
+certs-clean:
+	@echo "清理 HTTPS 证书..."
+	rm -rf certs
+	@echo "证书已清理"
+
 # 帮助信息
 help:
 	@echo "Oppama v$(VERSION)"
@@ -128,3 +138,5 @@ help:
 	@echo "  make web-build    - 构建前端"
 	@echo "  make web-dev      - 启动前端开发服务器"
 	@echo "  make init-config  - 生成配置文件"
+	@echo "  make certs        - 生成 HTTPS 自签名证书"
+	@echo "  make certs-clean  - 清理 HTTPS 证书"

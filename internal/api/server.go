@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"net/http"
 	"strings"
@@ -14,6 +15,7 @@ import (
 	"oppama/internal/proxy"
 	storagepkg "oppama/internal/storage"
 	"oppama/internal/task"
+	"oppama/internal/utils/logger"
 
 	"github.com/gin-gonic/gin"
 )
@@ -530,6 +532,48 @@ func (s *Server) registerRoutes() {
 // Run 启动服务器
 func (s *Server) Run() error {
 	addr := fmt.Sprintf("%s:%d", s.config.Server.Host, s.config.Server.Port)
+
+	// 如果启用了 HTTPS
+	if s.config.Server.EnableHTTPS {
+		if s.config.Server.CertFile == "" || s.config.Server.KeyFile == "" {
+			return fmt.Errorf("启用 HTTPS 时需要配置 cert_file 和 key_file")
+		}
+
+		logger.Server().Info("启动 HTTPS 服务器：%s", addr)
+		logger.Server().Info("管理界面：https://%s:%d/admin", s.config.Server.Host, s.config.Server.Port)
+		logger.Server().Info("API 文档：https://%s:%d/v1/api", s.config.Server.Host, s.config.Server.Port)
+
+		// 创建 TLS 配置
+		tlsConfig := &tls.Config{
+			MinVersion: tls.VersionTLS12,
+		}
+
+		// 如果配置了最小 TLS 版本
+		switch s.config.Server.MinTLSVersion {
+		case "1.0":
+			tlsConfig.MinVersion = tls.VersionTLS10
+		case "1.1":
+			tlsConfig.MinVersion = tls.VersionTLS11
+		case "1.2":
+			tlsConfig.MinVersion = tls.VersionTLS12
+		case "1.3":
+			tlsConfig.MinVersion = tls.VersionTLS13
+		}
+
+		server := &http.Server{
+			Addr:      addr,
+			Handler:   s.engine,
+			TLSConfig: tlsConfig,
+		}
+
+		return server.ListenAndServeTLS(s.config.Server.CertFile, s.config.Server.KeyFile)
+	}
+
+	// HTTP 模式
+	logger.Server().Info("启动 HTTP 服务器：%s", addr)
+	logger.Server().Info("管理界面：http://%s:%d/admin", s.config.Server.Host, s.config.Server.Port)
+	logger.Server().Info("API 文档：http://%s:%d/v1/api", s.config.Server.Host, s.config.Server.Port)
+
 	return s.engine.Run(addr)
 }
 

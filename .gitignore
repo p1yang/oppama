@@ -55,3 +55,8 @@ temp/
 # Docker compose local overrides
 docker-compose.local.yml
 docker-compose.override.yml
+
+# HTTPS certificates (keep certs directory, but ignore private keys)
+certs/*.key
+certs/*.pem
+certs/openssl.cnf

@@ -143,9 +143,15 @@ func main() {
 
 	// 启动服务器
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
-	logger.Server().Info("启动 API 服务器：%s", addr)
-	logger.Server().Info("管理界面：http://%s:%d/admin", cfg.Server.Host, cfg.Server.Port)
-	logger.Server().Info("API 文档：http://%s:%d/v1/api", cfg.Server.Host, cfg.Server.Port)
+	if cfg.Server.EnableHTTPS {
+		logger.Server().Info("启动 HTTPS API 服务器：%s", addr)
+		logger.Server().Info("管理界面：https://%s:%d/admin", cfg.Server.Host, cfg.Server.Port)
+		logger.Server().Info("API 文档：https://%s:%d/v1/api", cfg.Server.Host, cfg.Server.Port)
+	} else {
+		logger.Server().Info("启动 HTTP API 服务器：%s", addr)
+		logger.Server().Info("管理界面：http://%s:%d/admin", cfg.Server.Host, cfg.Server.Port)
+		logger.Server().Info("API 文档：http://%s:%d/v1/api", cfg.Server.Host, cfg.Server.Port)
+	}
 
 	if err := server.Run(); err != nil {
 		logger.Server().Fatalf("服务器启动失败：%v", err)

@@ -29,6 +29,13 @@ type ServerConfig struct {
 	Host string `yaml:"host"`
 	Port int    `yaml:"port"`
 	Mode string `yaml:"mode"` // debug, release, test
+	// HTTPS 配置
+	EnableHTTPS   bool   `yaml:"enable_https"`
+	CertFile      string `yaml:"cert_file"`
+	KeyFile       string `yaml:"key_file"`
+	AutoTLS       bool   `yaml:"auto_tls"`        // 自动申请 Let's Encrypt 证书
+	TLSDomains    string `yaml:"tls_domains"`     // TLS 域名列表，逗号分隔（用于 AutoTLS）
+	MinTLSVersion string `yaml:"min_tls_version"` // 最小 TLS 版本，默认 TLS 1.2
 }
 
 // ProxyConfig 代理配置
@@ -116,11 +123,11 @@ type ShodanConfig struct {
 
 // StorageConfig 存储配置
 type StorageConfig struct {
-	Type          string          `yaml:"type"` // memory, sqlite, postgres
-	SQLite        SQLiteConfig    `yaml:"sqlite"`
-	Postgres      PostgresConfig  `yaml:"postgres"`
-	RetentionDays int             `yaml:"retention_days"`
-	Pool          PoolConfig      `yaml:"pool"` // 连接池配置
+	Type          string         `yaml:"type"` // memory, sqlite, postgres
+	SQLite        SQLiteConfig   `yaml:"sqlite"`
+	Postgres      PostgresConfig `yaml:"postgres"`
+	RetentionDays int            `yaml:"retention_days"`
+	Pool          PoolConfig     `yaml:"pool"` // 连接池配置
 }
 
 // SQLiteConfig SQLite 配置
@@ -139,9 +146,9 @@ type PostgresConfig struct {
 
 // PoolConfig 数据库连接池配置
 type PoolConfig struct {
-	MaxOpenConns    int `yaml:"max_open_conns"`    // 最大打开连接数
-	MaxIdleConns    int `yaml:"max_idle_conns"`    // 最大空闲连接数
-	ConnMaxLifetime int `yaml:"conn_max_lifetime"` // 连接最大生命周期（秒）
+	MaxOpenConns    int `yaml:"max_open_conns"`     // 最大打开连接数
+	MaxIdleConns    int `yaml:"max_idle_conns"`     // 最大空闲连接数
+	ConnMaxLifetime int `yaml:"conn_max_lifetime"`  // 连接最大生命周期（秒）
 	ConnMaxIdleTime int `yaml:"conn_max_idle_time"` // 连接最大空闲时间（秒）
 }
 
@@ -228,6 +235,9 @@ func setDefaults(cfg *Config) {
 	if cfg.Server.Mode == "" {
 		cfg.Server.Mode = "release"
 	}
+	if cfg.Server.MinTLSVersion == "" {
+		cfg.Server.MinTLSVersion = "1.2" // 默认 TLS 1.2
+	}
 
 	// Proxy 默认值
 	if cfg.Proxy.MaxRetries == 0 {
@@ -265,7 +275,7 @@ func setDefaults(cfg *Config) {
 
 	// CORS 默认值
 	if len(cfg.CORS.AllowedOrigins) == 0 {
-		cfg.CORS.AllowedOrigins = []string{"http://localhost:5173", "http://localhost:8080"}
+		cfg.CORS.AllowedOrigins = []string{"http://localhost:5173", "http://localhost:9001"}
 	}
 	if len(cfg.CORS.AllowedMethods) == 0 {
 		cfg.CORS.AllowedMethods = []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"}

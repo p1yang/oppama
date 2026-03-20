@@ -5,6 +5,8 @@
 *.so
 *.dylib
 bin/
+data/
+logs/
 dist/
 
 # Test binary
@@ -47,6 +49,10 @@ Thumbs.db
 # Build outputs
 build/
 web/dist/
+web/node_modules/
+
+# TypeScript build info
+*.tsbuildinfo
 
 # Temporary files
 tmp/
@@ -60,3 +66,6 @@ docker-compose.override.yml
 certs/*.key
 certs/*.pem
 certs/openssl.cnf
+
+# Config files with sensitive data (optional)
+# config.yaml  # 取消注释如果需要忽略配置文件

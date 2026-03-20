@@ -35,27 +35,152 @@ Oppama 是一个专为 Ollama 设计的轻量级服务发现和 API 代理网关
 
 ## 快速开始
 
-### 方式二：直接运行
+### 方式一：Docker 部署（推荐）
 
-#### 1. 下载二进制文件
+#### 1. 使用 Docker Compose
 
 ```bash
-# Linux
-chmod +x oppama
-./oppama
+# 克隆项目
+git clone https://github.com/yourusername/oppama.git
+cd oppama
 
-# macOS
-chmod +x oppama-darwin
-./oppama-darwin
+# 启动服务
+docker-compose up -d
 
-# Windows
-oppama.exe
+# 查看日志
+docker-compose logs -f
+
+# 停止服务
+docker-compose down
 ```
 
-#### 2. 指定配置文件（可选）
+#### 2. 访问服务
+
+- **Web 控制台**: http://localhost:9001
+- **健康检查**: http://localhost:9001/health
+- **API 地址**: http://localhost:9001/api
+
+#### 3. 数据持久化
+
+Docker Compose 已自动配置卷挂载：
+- `./data` → `/app/data` (数据库)
+- `./logs` → `/app/logs` (日志文件)
+- `./config.yaml` → `/app/config.yaml` (配置文件)
+
+### 方式二：使用部署脚本（支持远程部署）
+
+项目提供统一的管理脚本 `scripts/manage.sh`，支持本地和远程服务器的一键安装、更新、备份。
 
 ```bash
+# 进入项目目录
+cd oppama
+
+# 运行管理脚本
+chmod +x scripts/manage.sh
+./scripts/manage.sh
+```
+
+**功能菜单：**
+- ✅ 本地安装（Docker）
+- ✅ 远程服务器安装（SSH）
+- ✅ 版本更新
+- ✅ 配置管理
+- ✅ 数据备份/恢复
+- ✅ 状态监控
+- ✅ 日志查看
+
+**远程部署示例：**
+
+1. 选择 "安装（远程服务器）"
+2. 输入服务器 IP、SSH 用户名和端口
+3. 配置服务端口和 HTTPS 选项
+4. 自动完成环境检测、镜像构建、文件上传和服务部署
+
+**常用命令：**
+
+```bash
+# 查看服务状态
+./scripts/manage.sh status
+
+# 查看实时日志
+./scripts/manage.sh logs
+
+# 重启服务
+./scripts/manage.sh restart
+
+# 备份数据
+./scripts/manage.sh backup
+```
+
+### 方式三：源码编译运行
+
+#### 1. 环境要求
+
+- Go 1.25+
+- Node.js 20+ (用于构建前端)
+- GCC 和 SQLite 开发库
+
+#### 2. 克隆项目
+
+```bash
+git clone https://github.com/yourusername/oppama.git
+cd oppama
+```
+
+#### 3. 构建前端
+
+```bash
+cd web
+npm install
+npm run build
+cd ..
+```
+
+#### 4. 构建后端
+
+```bash
+# 安装依赖
+go mod download
+
+# 编译（需要 CGO 支持）
+CGO_ENABLED=1 go build -o oppama ./cmd/server
+```
+
+#### 5. 运行服务
+
+```bash
+# 使用默认配置运行
+./oppama
+
+# 指定配置文件
 ./oppama --config /path/to/config.yaml
+```
+
+#### 6. 使用 Makefile（可选）
+
+项目提供了 Makefile，可以简化构建流程：
+
+```bash
+# 安装前端依赖
+make web-install
+
+# 构建前端
+make web-build
+
+# 构建后端
+make build
+
+# 直接运行（开发模式）
+make run
+
+# 后台运行
+make run-bg
+
+# 查看日志
+make logs
+
+# 停止服务
+make stop
 ```
 
 ## 配置说明
@@ -91,6 +216,39 @@ export OLLAMA_LOG_FORMAT=text
 ### 配置文件详解
 
 完整配置示例请参考 `deploy/config.example.yaml`。
+
+### Docker 部署配置
+
+使用 Docker 部署时，可以通过以下方式配置：
+
+**1. 修改 docker-compose.yml**
+
+```yaml
+services:
+  oppama:
+    ports:
+      - "9001:9001"  # 修改宿主机端口
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./config.yaml:/app/config.yaml
+```
+
+**2. 使用环境变量**
+
+```bash
+# 在 docker-compose.yml 中添加
+environment:
+  - OLLAMA_SERVER_PORT=9001
+  - OLLAMA_LOG_LEVEL=info
+```
+
+**3. 挂载自定义配置文件**
+
+```bash
+# 准备 config.yaml
+docker run -v $(pwd)/config.yaml:/app/config.yaml oppama:latest
+```
 
 ## API 使用指南
 
@@ -207,7 +365,206 @@ curl http://localhost:8080/health
 }
 ```
 
-## 常见问题
+## 生产环境部署
+
+### Docker 生产部署
+
+**1. 启用 HTTPS**
+
+修改 `config.yaml`：
+
+```yaml
+server:
+  enable_https: true
+  cert_file: "./certs/server.crt"
+  key_file: "./certs/server.key"
+  min_tls_version: "1.2"
+```
+
+**2. 配置反向代理（Nginx）**
+
+```nginx
+server {
+    listen 80;
+    server_name your-domain.com;
+    
+    location / {
+        proxy_pass http://localhost:9001;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    }
+}
+```
+
+**3. 配置系统服务（Systemd）**
+
+创建 `/etc/systemd/system/oppama.service`：
+
+```ini
+[Unit]
+Description=Oppama Service
+After=docker.service
+Requires=docker.service
+
+[Service]
+Restart=always
+WorkingDirectory=/opt/oppama
+ExecStart=/usr/local/bin/docker-compose up -d
+ExecStop=/usr/local/bin/docker-compose down
+
+[Install]
+WantedBy=multi-user.target
+```
+
+启用服务：
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable oppama
+sudo systemctl start oppama
+```
+
+### 使用管理脚本部署到生产环境
+
+项目提供统一的交互式管理脚本 `scripts/manage.sh`，支持本地和远程服务器的完整生命周期管理。
+
+**基本用法：**
+
+```bash
+# 进入项目目录
+cd oppama
+
+# 运行管理脚本
+chmod +x scripts/manage.sh
+./scripts/manage.sh
+```
+
+**功能菜单：**
+
+1. ✅ **安装（本地）** - 在当前服务器通过 Docker 安装
+2. ✅ **安装（远程服务器）** - 通过 SSH 部署到远程服务器
+3. ✅ **更新（本地）** - 更新当前服务器的版本
+4. ✅ **更新（远程服务器）** - 更新远程服务器的版本
+5. ✅ **更新配置** - 修改服务端口、HTTPS 等配置
+6. ✅ **备份数据** - 备份数据、配置和证书
+7. ✅ **从备份恢复** - 从历史备份中恢复
+8. ✅ **查看状态** - 查看服务运行状态
+9. ✅ **查看日志** - 实时查看日志输出
+10. ✅ **重启服务** - 重启服务
+11. ✅ **卸载服务** - 完全卸载服务
+
+**远程部署示例：**
+
+```bash
+# 运行脚本
+./scripts/manage.sh
+
+# 选择 "2) 安装（远程服务器）"
+# 输入服务器 IP: 192.168.1.100
+# SSH 用户名 (默认：root): root
+# SSH 端口 (默认：22): 22
+
+# 然后按照提示配置：
+# - 服务端口 (默认：9001)
+# - 是否启用 HTTPS
+# - 自动生成 API Key、管理员密码、JWT Secret
+
+# 脚本会自动完成：
+# 1. 检测远程服务器 Docker 环境
+# 2. 构建 Docker 镜像并打包
+# 3. 上传镜像到远程服务器
+# 4. 生成配置文件和证书
+# 5. 启动服务并进行健康检查
+# 6. 显示访问地址和凭证信息
+```
+
+**自动化运维命令：**
+
+```bash
+# 查看服务状态
+./scripts/manage.sh status          # 选择 8 -> 1 (本地) 或 2 (远程)
+
+# 查看实时日志
+./scripts/manage.sh logs            # 选择 9 -> 1 (本地) 或 2 (远程)
+
+# 重启服务
+./scripts/manage.sh restart         # 选择 10 -> 1 (本地) 或 2 (远程)
+
+# 备份数据
+./scripts/manage.sh backup          # 选择 6 -> 1 (本地) 或 2 (远程)
+
+# 从备份恢复
+./scripts/manage.sh restore         # 选择 7 -> 选择备份文件
+```
+
+**特点：**
+
+- 🔐 **自动生成安全凭证**：API Key、管理员密码、JWT Secret
+- 📦 **Docker 镜像打包**：自动构建并传输优化后的镜像
+- 🔒 **HTTPS 支持**：可选的自签名证书生成
+- 💾 **数据持久化**：自动配置卷挂载，确保数据安全
+- ❤️ **健康检查**：部署后自动进行健康验证
+- 🎯 **交互式界面**：无需记忆参数，引导式操作
+
+### 高可用部署建议
+
+1. **多实例部署**：在多台服务器上部署 Oppama 实例
+2. **负载均衡**：使用 Nginx 或 HAProxy 进行负载均衡
+3. **数据备份**：定期备份 `data/` 目录和配置文件
+4. **监控告警**：配置健康检查和日志监控
+
+## 维护与故障排查
+
+### 查看服务状态
+
+```bash
+# Docker 方式
+docker-compose ps
+
+# 使用管理脚本
+./scripts/manage.sh status
+```
+
+### 查看日志
+
+```bash
+# 实时日志
+docker-compose logs -f
+
+# 最近 100 行
+docker-compose logs --tail=100
+
+# 导出日志
+docker-compose logs > oppama.log
+```
+
+### 备份数据
+
+```bash
+# 使用管理脚本备份
+./scripts/manage.sh backup
+
+# 手动备份
+cp -r data/ backup-$(date +%Y%m%d)
+cp config.yaml backup-config-$(date +%Y%m%d).yaml
+```
+
+### 恢复数据
+
+```bash
+# 停止服务
+docker-compose down
+
+# 恢复数据
+cp -r backup-20260320/ data/
+cp backup-config-20260320.yaml config.yaml
+
+# 重启服务
+docker-compose up -d
+```
+
+### 常见问题
 
 ### Q: 如何启用 API 认证？
 

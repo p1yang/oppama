@@ -24,7 +24,7 @@ import (
 type ChatCompletionRequest struct {
 	Model            string    `json:"model"`
 	Messages         []Message `json:"messages"`
-	System           string    `json:"system,omitempty"`           // 系统提示
+	System           string    `json:"system,omitempty"` // 系统提示
 	Temperature      float64   `json:"temperature,omitempty"`
 	TopP             float64   `json:"top_p,omitempty"`
 	MaxTokens        int       `json:"max_tokens,omitempty"`
@@ -137,8 +137,8 @@ type Options struct {
 	NumPredict       int      `json:"num_predict,omitempty"`
 	PresencePenalty  float64  `json:"presence_penalty,omitempty"`
 	FrequencyPenalty float64  `json:"frequency_penalty,omitempty"`
-	RepeatPenalty    float64  `json:"repeat_penalty,omitempty"`    // Ollama: 防止重复生成
-	RepeatLastN      int      `json:"repeat_last_n,omitempty"`     // Ollama: 对最近 N 个 token 应用惩罚
+	RepeatPenalty    float64  `json:"repeat_penalty,omitempty"` // Ollama: 防止重复生成
+	RepeatLastN      int      `json:"repeat_last_n,omitempty"`  // Ollama: 对最近 N 个 token 应用惩罚
 	Stop             []string `json:"stop,omitempty"`
 }
 
@@ -274,9 +274,9 @@ type ProxyService struct {
 	detectorClient  *http.Client // 专用于检测的 HTTP 客户端
 	mu              sync.RWMutex
 	currentServices []*storage.OllamaService
-	serviceCache    *cache.ServiceCache // 服务列表缓存
+	serviceCache    *cache.ServiceCache  // 服务列表缓存
 	responseCache   *cache.ResponseCache // 响应缓存
-	metrics         *Metrics // Prometheus 指标
+	metrics         *Metrics             // Prometheus 指标
 	enableAuth      bool
 	apiKey          string
 	fallbackEnabled bool
@@ -296,9 +296,9 @@ type ProxyService struct {
 	// 格式转换相关
 	converter *ToolCallConverter // 工具调用格式转换器
 	// 模型上下文长度缓存
-	modelContextCache map[string]int  // model_name -> context_length (token 数)
-	contextCacheMu    sync.RWMutex    // 保护模型上下文缓存的锁
-	contextCacheTTL   time.Duration   // 缓存过期时间，默认 1 小时
+	modelContextCache map[string]int // model_name -> context_length (token 数)
+	contextCacheMu    sync.RWMutex   // 保护模型上下文缓存的锁
+	contextCacheTTL   time.Duration  // 缓存过期时间，默认 1 小时
 }
 
 // SessionBinding 会话绑定信息
@@ -363,19 +363,19 @@ func NewProxyService(cfg *ProxyConfig, store storage.Storage) *ProxyService {
 			TTL:     5 * time.Minute,
 			Enabled: true, // 默认启用响应缓存
 		}),
-		metrics:         NewMetrics(), // 初始化指标收集器
-		enableAuth:      cfg.EnableAuth,
-		apiKey:          cfg.APIKey,
-		fallbackEnabled: cfg.FallbackEnabled,
-		maxRetries:      cfg.MaxRetries,
-		rateLimitRPM:    cfg.RateLimitRPM,
-		httpProxy:       cfg.HTTPProxy,
-		httpsProxy:      cfg.HTTPSProxy,
-		noProxy:         cfg.NoProxy,
-		lastUsedIndex:   make(map[string]int),
-		modelRoundRobin: make(map[string]int),
-		sessionBindings: make(map[string]*SessionBinding),
-		sessionTTL:      30 * time.Minute, // 默认会话过期时间 30 分钟
+		metrics:           NewMetrics(), // 初始化指标收集器
+		enableAuth:        cfg.EnableAuth,
+		apiKey:            cfg.APIKey,
+		fallbackEnabled:   cfg.FallbackEnabled,
+		maxRetries:        cfg.MaxRetries,
+		rateLimitRPM:      cfg.RateLimitRPM,
+		httpProxy:         cfg.HTTPProxy,
+		httpsProxy:        cfg.HTTPSProxy,
+		noProxy:           cfg.NoProxy,
+		lastUsedIndex:     make(map[string]int),
+		modelRoundRobin:   make(map[string]int),
+		sessionBindings:   make(map[string]*SessionBinding),
+		sessionTTL:        30 * time.Minute,       // 默认会话过期时间 30 分钟
 		converter:         NewToolCallConverter(), // 初始化格式转换器
 		modelContextCache: make(map[string]int),   // 初始化模型上下文长度缓存
 		contextCacheTTL:   time.Hour,              // 缓存 1 小时
@@ -416,12 +416,12 @@ func createProxyFunc(httpProxy, httpsProxy, noProxy string) func(*http.Request) 
 func createTransport() *http.Transport {
 	return &http.Transport{
 		// 连接池配置
-		MaxIdleConns:          200,              // 最大空闲连接数
-		MaxIdleConnsPerHost:   100,              // 每个主机的最大空闲连接数（提升）
-		MaxConnsPerHost:       0,                // 0 表示无限制（移除连接数上限）
-		DisableKeepAlives:     false,            // 保持长连接，对流式传输至关重要
-		DisableCompression:    true,             // 禁用压缩减少 CPU 开销和延迟
-		IdleConnTimeout:       90 * time.Second, // 空闲连接超时
+		MaxIdleConns:        200,              // 最大空闲连接数
+		MaxIdleConnsPerHost: 100,              // 每个主机的最大空闲连接数（提升）
+		MaxConnsPerHost:     0,                // 0 表示无限制（移除连接数上限）
+		DisableKeepAlives:   false,            // 保持长连接，对流式传输至关重要
+		DisableCompression:  true,             // 禁用压缩减少 CPU 开销和延迟
+		IdleConnTimeout:     90 * time.Second, // 空闲连接超时
 		// 自定义拨号配置，优化连接建立
 		DialContext: (&net.Dialer{
 			Timeout:   30 * time.Second, // 连接建立超时
@@ -582,7 +582,7 @@ func (p *ProxyService) StreamChatCompletions(ctx context.Context, req *ChatCompl
 	// 2. 转换为 Ollama 格式
 	ollamaReq := p.convertToOllamaRequest(req, ollamaModel)
 
-	// 3. 发送流式请求到 Ollama
+	// 3. 发送流式请求到 Ollama（带故障转移）
 	ollamaReq.Stream = true
 
 	url := fmt.Sprintf("%s/api/chat", service.URL)
@@ -626,8 +626,8 @@ func (p *ProxyService) StreamChatCompletions(ctx context.Context, req *ChatCompl
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 
-	// 5. 发送请求
-	resp, err := p.httpClient.Do(httpReq)
+	// 5. 发送请求（带故障转移逻辑）
+	resp, err := p.sendRequestWithFailover(ctx, httpReq, service, req.Model, req.SessionID)
 	if err != nil {
 		logger.Proxy().Printf("❌ 流式请求失败：%v", err)
 		return err
@@ -730,6 +730,132 @@ func (p *ProxyService) StreamChatCompletions(ctx context.Context, req *ChatCompl
 	logger.Proxy().Printf("========================================\n")
 
 	return nil
+}
+
+// sendRequestWithFailover 发送请求并带故障转移逻辑
+func (p *ProxyService) sendRequestWithFailover(ctx context.Context, httpReq *http.Request, initialService *storage.OllamaService, requestedModel string, sessionID string) (*http.Response, error) {
+	// 如果是会话绑定的请求，需要排除的服务 ID
+	excludeServiceIDs := make(map[string]bool)
+	excludeServiceIDs[initialService.ID] = true
+
+	// 尝试当前服务
+	resp, err := p.httpClient.Do(httpReq)
+	if err == nil && resp.StatusCode == http.StatusOK {
+		return resp, nil
+	}
+
+	// 检查是否是可重试的错误（403, 503, 502, 504 等）
+	isRetryable := false
+	if resp != nil {
+		if resp.StatusCode == http.StatusForbidden ||
+			resp.StatusCode == http.StatusServiceUnavailable ||
+			resp.StatusCode == http.StatusBadGateway ||
+			resp.StatusCode == http.StatusGatewayTimeout {
+			isRetryable = true
+			logger.Proxy().Printf("⚠️  检测到可重试错误：HTTP %d，尝试故障转移...", resp.StatusCode)
+			resp.Body.Close() // 关闭当前响应
+		}
+	}
+
+	if err != nil {
+		logger.Proxy().Printf("⚠️  请求失败：%v，尝试故障转移...", err)
+		isRetryable = true
+	}
+
+	// 如果不是可重试的错误，直接返回
+	if !isRetryable {
+		return resp, err
+	}
+
+	// 清除会话绑定（如果存在）
+	if sessionID != "" {
+		p.removeSessionBinding(sessionID)
+	}
+
+	// 获取所有匹配的服务
+	p.mu.RLock()
+	matchingServices := p.findMatchingServices(requestedModel)
+	p.mu.RUnlock()
+
+	// 尝试其他可用服务
+	for _, ms := range matchingServices {
+		if excludeServiceIDs[ms.service.ID] {
+			continue // 跳过已排除的服务
+		}
+
+		logger.Proxy().Printf("🔄 尝试备用服务：%s (%s), 模型：%s", ms.service.ID, ms.service.URL, ms.model)
+
+		// 更新请求 URL
+		newURL := fmt.Sprintf("%s/api/chat", ms.service.URL)
+		parsedURL, err := url.Parse(newURL)
+		if err != nil {
+			logger.Proxy().Printf("❌ 解析 URL 失败：%v", err)
+			continue
+		}
+		httpReq.URL = parsedURL
+		httpReq.Host = httpReq.URL.Host
+
+		// 尝试新服务
+		resp, err = p.httpClient.Do(httpReq)
+		if err == nil && resp.StatusCode == http.StatusOK {
+			logger.Proxy().Printf("✅ 备用服务成功：%s", ms.service.ID)
+			// 更新会话绑定到新服务
+			if sessionID != "" {
+				p.createSessionBinding(sessionID, ms.service, ms.model)
+			}
+			return resp, nil
+		}
+
+		// 记录失败并继续尝试下一个
+		if resp != nil {
+			logger.Proxy().Printf("❌ 备用服务失败：HTTP %d", resp.StatusCode)
+			resp.Body.Close()
+		} else {
+			logger.Proxy().Printf("❌ 备用服务失败：%v", err)
+		}
+
+		excludeServiceIDs[ms.service.ID] = true
+	}
+
+	// 所有服务都失败
+	if resp != nil {
+		return resp, fmt.Errorf("所有服务都不可用：%w", err)
+	}
+	return nil, fmt.Errorf("所有服务都不可用：%w", err)
+}
+
+// tryFallbackServices 尝试备用服务（非流式请求）
+func (p *ProxyService) tryFallbackServices(ctx context.Context, req *OllamaChatRequest, excludeServiceID string, sessionID string) (*OllamaChatResponse, error) {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	logger.Proxy().Printf("开始 fallback，排除服务：%s", excludeServiceID)
+
+	// 获取所有匹配的服务
+	modelName := req.Model
+	matchingServices := p.findMatchingServices(modelName)
+
+	for _, ms := range matchingServices {
+		if ms.service.ID == excludeServiceID {
+			continue // 跳过已排除的服务
+		}
+
+		logger.Proxy().Printf("🔄 尝试备用服务：%s (%s), 模型：%s", ms.service.ID, ms.service.URL, ms.model)
+
+		// 递归调用自己，但不传入 excludeServiceID 以避免无限循环
+		ollamaResp, err := p.sendOllamaRequestWithRetry(ctx, ms.service.URL, req, "", sessionID)
+		if err == nil {
+			logger.Proxy().Printf("✅ 备用服务成功：%s", ms.service.ID)
+			// 更新会话绑定到新服务
+			if sessionID != "" {
+				p.createSessionBinding(sessionID, ms.service, ms.model)
+			}
+			return ollamaResp, nil
+		}
+		logger.Proxy().Printf("❌ 备用服务失败：%v", err)
+	}
+
+	return nil, fmt.Errorf("所有备用服务都不可用")
 }
 
 // convertToOpenAIStreamChunk 转换 Ollama 流式响应为 OpenAI 格式
@@ -901,7 +1027,6 @@ const (
 	ModelTypeUnknown  ModelType = "unknown"
 )
 
-
 // ChatCompletions 处理 Chat Completions 请求（非流式） (OpenAI 兼容)
 func (p *ProxyService) ChatCompletions(ctx context.Context, req *ChatCompletionRequest) (*ChatCompletionResponse, error) {
 	// 1. 选择合适的服务和模型（支持会话绑定）
@@ -921,13 +1046,13 @@ func (p *ProxyService) ChatCompletions(ctx context.Context, req *ChatCompletionR
 	// 然后在 API 层将完整响应转换为 SSE 格式返回
 	ollamaReq.Stream = false
 
-	// 增加重试机制
+	// 增加重试机制和故障转移
 	var ollamaResp *OllamaChatResponse
 	maxRetries := p.maxRetries
 	retryDelay := 2 * time.Second
 
 	for attempt := 0; attempt <= maxRetries; attempt++ {
-		ollamaResp, err = p.sendOllamaRequest(ctx, service.URL, ollamaReq)
+		ollamaResp, err = p.sendOllamaRequestWithRetry(ctx, service.URL, ollamaReq, service.ID, req.SessionID)
 		if err == nil {
 			// 成功则跳出
 			break
@@ -1399,8 +1524,13 @@ func (p *ProxyService) convertToOllamaRequest(openaiReq *ChatCompletionRequest, 
 	}
 }
 
-// sendOllamaRequest 发送请求到 Ollama
+// sendOllamaRequest 发送请求到 Ollama（带故障转移）
 func (p *ProxyService) sendOllamaRequest(ctx context.Context, baseURL string, req *OllamaChatRequest) (*OllamaChatResponse, error) {
+	return p.sendOllamaRequestWithRetry(ctx, baseURL, req, "", "")
+}
+
+// sendOllamaRequestWithRetry 发送请求到 Ollama 并支持重试和故障转移
+func (p *ProxyService) sendOllamaRequestWithRetry(ctx context.Context, baseURL string, req *OllamaChatRequest, excludeServiceID string, sessionID string) (*OllamaChatResponse, error) {
 	url := fmt.Sprintf("%s/api/chat", baseURL)
 
 	// 强制设置为非流式模式
@@ -1456,9 +1586,27 @@ func (p *ProxyService) sendOllamaRequest(ctx context.Context, baseURL string, re
 
 	logger.Proxy().Printf("✅ 收到响应：HTTP %d", resp.StatusCode)
 
+	// 检查是否需要故障转移（403, 503 等错误）
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
 		logger.Proxy().Printf("❌ Ollama 返回错误 [%d]: %s", resp.StatusCode, string(body))
+
+		// 检查是否是可重试的错误
+		isRetryable := resp.StatusCode == http.StatusForbidden ||
+			resp.StatusCode == http.StatusServiceUnavailable ||
+			resp.StatusCode == http.StatusBadGateway ||
+			resp.StatusCode == http.StatusGatewayTimeout
+
+		if isRetryable && excludeServiceID != "" {
+			logger.Proxy().Printf("⚠️  检测到可重试错误：HTTP %d，尝试故障转移...", resp.StatusCode)
+			// 清除会话绑定
+			if sessionID != "" {
+				p.removeSessionBinding(sessionID)
+			}
+			// 尝试其他服务
+			return p.tryFallbackServices(ctx, req, excludeServiceID, sessionID)
+		}
+
 		return nil, fmt.Errorf("Ollama 返回错误 [%d]: %s", resp.StatusCode, string(body))
 	}
 
@@ -1851,7 +1999,6 @@ func GetContentString(content interface{}) string {
 		return fmt.Sprintf("%v", v)
 	}
 }
-
 
 // Embeddings 生成文本嵌入向量
 func (p *ProxyService) Embeddings(ctx context.Context, req *EmbeddingRequest) (*EmbeddingResponse, error) {

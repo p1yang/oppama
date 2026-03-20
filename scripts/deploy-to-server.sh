@@ -181,10 +181,11 @@ CONFIGEOF
 
     # 如果需要 HTTPS，生成自签名证书
     if [ "${HTTPS_ENABLED}" = "true" ]; then
-        openssl req -x509 -nodes -days 365 -newkey rsa:2048 \\
-          -keyout $REMOTE_DIR/certs/server.key \\
-          -out $REMOTE_DIR/certs/server.crt \\
-          -subj "/C=CN/ST=Beijing/L=Beijing/O=Oppama/CN=localhost"
+        openssl req -x509 -nodes -days 365 -newkey rsa:4096 \
+          -keyout $REMOTE_DIR/certs/server.key \
+          -out $REMOTE_DIR/certs/server.crt \
+          -subj "/CN=localhost" \
+          -addext "subjectAltName=IP:${SERVER_IP},DNS:localhost"
         chmod 600 $REMOTE_DIR/certs/server.key
         chmod 644 $REMOTE_DIR/certs/server.crt
     fi

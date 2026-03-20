@@ -1,5 +1,7 @@
 # Oppama - Ollama 服务发现与代理网关
 
+(没做什么加密权限什么的特别安全的处理，建议本地部署)
+
 ## 项目简介
 
 Oppama 是一个专为 Ollama 设计的轻量级服务发现和 API 代理网关。
@@ -51,6 +53,7 @@ docker-compose down
 #### 3. 数据持久化
 
 Docker Compose 已自动配置卷挂载：
+
 - `./data` → `/app/data` (数据库)
 - `./logs` → `/app/logs` (日志文件)
 - `./config.yaml` → `/app/config.yaml` (配置文件)
@@ -69,6 +72,7 @@ chmod +x scripts/manage.sh
 ```
 
 **功能菜单：**
+
 - ✅ 本地安装（Docker）
 - ✅ 远程服务器安装（SSH）
 - ✅ 版本更新
@@ -375,7 +379,7 @@ server:
 server {
     listen 80;
     server_name your-domain.com;
-    
+  
     location / {
         proxy_pass http://localhost:9001;
         proxy_set_header Host $host;
@@ -494,7 +498,6 @@ chmod +x scripts/manage.sh
 - 💾 **数据持久化**：自动配置卷挂载，确保数据安全
 - ❤️ **健康检查**：部署后自动进行健康验证
 - 🎯 **交互式界面**：无需记忆参数，引导式操作
-
 
 ## 维护与故障排查
 

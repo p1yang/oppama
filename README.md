@@ -41,7 +41,7 @@ Oppama 是一个专为 Ollama 设计的轻量级服务发现和 API 代理网关
 
 ```bash
 # 克隆项目
-git clone https://github.com/yourusername/oppama.git
+git clone https://github.com/p1yang/oppama.git
 cd oppama
 
 # 启动服务
@@ -123,7 +123,7 @@ chmod +x scripts/manage.sh
 #### 2. 克隆项目
 
 ```bash
-git clone https://github.com/yourusername/oppama.git
+git clone https://github.com/p1yang/oppama.git
 cd oppama
 ```
 
